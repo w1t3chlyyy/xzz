@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 
 function verifyTelegramInitData(initData: string, botToken: string) {
   try {
-    // Сначала пробуем декодировать
+    // Декодируем
     let decoded = initData;
     try {
       decoded = decodeURIComponent(initData);
@@ -21,39 +21,68 @@ function verifyTelegramInitData(initData: string, botToken: string) {
     
     urlParams.delete("hash");
     
-    // ===== ГЛАВНОЕ ИСПРАВЛЕНИЕ =====
-    // Получаем user и преобразуем в правильный JSON
+    // ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ =====
+    // Получаем user и принудительно преобразуем в JSON строку
     let userParam = urlParams.get("user");
     if (userParam) {
       try {
-        // Пробуем парсить как JSON
-        const userObj = JSON.parse(userParam);
-        // Преобразуем обратно в строку без пробелов и переносов
-        userParam = JSON.stringify(userObj);
-        // Обновляем параметр
-        urlParams.set("user", userParam);
-        console.log("🔄 User converted to proper JSON");
-      } catch (e) {
-        // Если не получилось, пробуем исправить вручную
+        // Пробуем разные способы парсинга
+        let userObj = null;
+        
+        // Способ 1: Прямой парсинг
         try {
-          // Удаляем переносы строк и лишние пробелы
-          let cleaned = userParam
-            .replace(/\n/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
+          userObj = JSON.parse(userParam);
+        } catch (e) {}
+        
+        // Способ 2: Если не получилось, пробуем через eval (только для отладки!)
+        if (!userObj) {
+          try {
+            // Заменяем переносы и лишние пробелы
+            let cleaned = userParam
+              .replace(/\n/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            // Если есть ключи без кавычек - добавляем кавычки
+            cleaned = cleaned.replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3');
+            
+            userObj = JSON.parse(cleaned);
+          } catch (e) {}
+        }
+        
+        // Способ 3: Ручная сборка из строки
+        if (!userObj) {
+          // Извлекаем значения вручную
+          const idMatch = userParam.match(/id:\s*(\d+)/);
+          const firstNameMatch = userParam.match(/first_name:\s*"([^"]*)"/);
+          const lastNameMatch = userParam.match(/last_name:\s*"([^"]*)"/);
+          const usernameMatch = userParam.match(/username:\s*"([^"]*)"/);
+          const languageMatch = userParam.match(/language_code:\s*"([^"]*)"/);
+          const premiumMatch = userParam.match(/is_premium:\s*(true|false)/);
+          const photoMatch = userParam.match(/photo_url:\s*"([^"]*)"/);
           
-          // Если это не полный JSON, оборачиваем в фигурные скобки
-          if (!cleaned.startsWith('{')) {
-            cleaned = '{' + cleaned + '}';
-          }
+          userObj = {
+            id: idMatch ? parseInt(idMatch[1]) : null,
+            first_name: firstNameMatch ? firstNameMatch[1] : null,
+            last_name: lastNameMatch ? lastNameMatch[1] : null,
+            username: usernameMatch ? usernameMatch[1] : null,
+            language_code: languageMatch ? languageMatch[1] : null,
+            is_premium: premiumMatch ? premiumMatch[1] === 'true' : false,
+            photo_url: photoMatch ? photoMatch[1] : null,
+            allows_write_to_pm: true,
+          };
           
-          const userObj = JSON.parse(cleaned);
+          console.log("🔄 User parsed manually");
+        }
+        
+        if (userObj) {
+          // Преобразуем в правильный JSON без пробелов
           userParam = JSON.stringify(userObj);
           urlParams.set("user", userParam);
-          console.log("🔄 User cleaned and converted");
-        } catch (e2) {
-          console.log("❌ Failed to parse user:", e2);
+          console.log("✅ User converted to proper JSON");
         }
+      } catch (e) {
+        console.log("❌ Failed to parse user:", e);
       }
     }
     // ===== КОНЕЦ ИСПРАВЛЕНИЯ =====
