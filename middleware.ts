@@ -1,20 +1,9 @@
 // middleware.ts
+import { NextResponse } from 'next/server';
+
 export function middleware(request: Request) {
-  const url = new URL(request.url);
-  
-  // Простая логика
-  if (url.pathname === '/old') {
-    return Response.redirect(new URL('/new', request.url));
-  }
-  
-  return new Response(null, {
-    status: 200,
-    headers: {
-      'x-middleware': 'true',
-    },
-  });
+  // Пропускаем все запросы
+  return NextResponse.next();
 }
 
-export const config = {
-  matcher: ['/:path*'],
-};
+// Не используем matcher, чтобы не блокировать ничего
