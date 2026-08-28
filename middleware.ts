@@ -1,5 +1,6 @@
 // middleware.ts
-import { NextResponse } from 'next/server';
+// ❌ НЕТ импортов из next/server
+// ✅ Используем только нативные Web API
 
 export async function middleware(request: Request) {
   const url = new URL(request.url);
@@ -8,50 +9,52 @@ export async function middleware(request: Request) {
   // Получаем куки из заголовков
   const cookieHeader = request.headers.get('cookie') || '';
   const cookies: Record<string, string> = {};
+  
   cookieHeader.split('; ').forEach(cookie => {
     const [key, ...value] = cookie.split('=');
     cookies[key] = value.join('=');
   });
   
   // Проверяем наличие сессии Supabase
-  const hasSession = !!cookies['sb-access-token'] || !!cookies['session'];
+  const hasSession = !!(
+    cookies['sb-access-token'] || 
+    cookies['sb-refresh-token'] || 
+    cookies['session']
+  );
   
-  // Публичные маршруты (доступны без сессии)
-  const publicPaths = ['/onboarding'];
-  const isPublic = publicPaths.some(path => pathname === path || pathname.startsWith(path + '/'));
+  // Публичные маршруты
+  const isOnboarding = pathname === '/onboarding' || pathname.startsWith('/onboarding/');
+  const isApi = pathname.startsWith('/api');
+  const isStatic = pathname.startsWith('/_next') || pathname.includes('.') && 
+                   !pathname.startsWith('/api');
   
-  // API маршруты пропускаем
-  if (pathname.startsWith('/api')) {
-    return NextResponse.next();
+  // Пропускаем API и статику
+  if (isApi || isStatic) {
+    return new Response(null, { status: 200 });
   }
   
-  // Если нет сессии и не на публичном маршруте - редирект на онбординг
-  if (!hasSession && !isPublic && pathname !== '/') {
-    return NextResponse.redirect(new URL('/onboarding', request.url));
+  // Если нет сессии и не на онбординге
+  if (!hasSession && !isOnboarding && pathname !== '/') {
+    return Response.redirect(new URL('/onboarding', request.url));
   }
   
-  // Если есть сессия и на онбординге - редирект в ленту
-  if (hasSession && pathname.startsWith('/onboarding')) {
-    return NextResponse.redirect(new URL('/feed', request.url));
+  // Если есть сессия и на онбординге
+  if (hasSession && isOnboarding) {
+    return Response.redirect(new URL('/feed', request.url));
   }
   
-  // Для главной страницы редиректим
+  // Если главная страница
   if (pathname === '/') {
-    return NextResponse.redirect(new URL(hasSession ? '/feed' : '/onboarding', request.url));
+    return Response.redirect(new URL(hasSession ? '/feed' : '/onboarding', request.url));
   }
   
-  return NextResponse.next();
+  // Пропускаем запрос
+  return new Response(null, { status: 200 });
 }
 
 export const config = {
+  runtime: 'edge',
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
