@@ -1,7 +1,6 @@
-// middleware.ts
-// ❌ НЕ ИСПОЛЬЗУЙТЕ ЭТИ ИМПОРТЫ В EDGE:
-// import { NextResponse } from 'next/server';
-// import type { NextRequest } from 'next/server';
+
+ import { NextResponse } from 'next/server';
+ import type { NextRequest } from 'next/server';
 
 // ✅ ИСПОЛЬЗУЙТЕ NATIVE WEB API:
 export function middleware(request: Request) {
