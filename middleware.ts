@@ -1,9 +1,10 @@
 // middleware.ts
+// Импортируем из 'next/server' только то, что поддерживается в Edge
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  // Простой middleware без Supabase
+  // Простой middleware
   return NextResponse.next();
 }
 
