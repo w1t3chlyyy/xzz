@@ -1,35 +1,20 @@
 // middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-
-// НЕ ИСПОЛЬЗУЙТЕ этот импорт в Edge:
-// import { cookies } from 'next/headers'; // ❌ НЕ РАБОТАЕТ В EDGE
-
-export function middleware(request: NextRequest) {
-  // Работаем с request напрямую
-  const url = request.nextUrl;
-  const pathname = url.pathname;
+export function middleware(request: Request) {
+  const url = new URL(request.url);
   
-  // Проверяем куки через request
-  const session = request.cookies.get('session')?.value;
-  
-  // Пример: защита маршрутов
-  if (pathname.startsWith('/dashboard') && !session) {
-    return NextResponse.redirect(new URL('/auth/login', request.url));
+  // Простая логика
+  if (url.pathname === '/old') {
+    return Response.redirect(new URL('/new', request.url));
   }
   
-  return NextResponse.next();
+  return new Response(null, {
+    status: 200,
+    headers: {
+      'x-middleware': 'true',
+    },
+  });
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/:path*'],
 };
