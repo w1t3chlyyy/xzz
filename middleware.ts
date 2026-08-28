@@ -1,39 +1,42 @@
 // middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+// ❌ НЕ ИСПОЛЬЗУЙТЕ ЭТИ ИМПОРТЫ В EDGE:
+// import { NextResponse } from 'next/server';
+// import type { NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
-  const path = request.nextUrl.pathname;
+// ✅ ИСПОЛЬЗУЙТЕ NATIVE WEB API:
+export function middleware(request: Request) {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
   
-  // Публичные маршруты (доступны без авторизации)
-  const publicPaths = ['/api/auth', '/onboarding'];
-  const isPublic = publicPaths.some(p => path.startsWith(p));
+  // Получаем куки через заголовки
+  const cookieHeader = request.headers.get('cookie') || '';
+  const cookies = Object.fromEntries(
+    cookieHeader.split('; ').map(c => {
+      const [key, ...value] = c.split('=');
+      return [key, value.join('=')];
+    })
+  );
   
-  // Если не публичный и нет сессии - редирект на онбординг
-  const session = request.cookies.get('session')?.value;
+  const session = cookies.session;
   
-  if (!isPublic && !session && path !== '/') {
-    return NextResponse.redirect(new URL('/onboarding', request.url));
+  // Простая логика редиректа
+  if (!session && pathname.startsWith('/feed')) {
+    return Response.redirect(new URL('/onboarding', request.url));
   }
   
-  // Если есть сессия и на онбординге - редирект в ленту
-  if (session && path.startsWith('/onboarding')) {
-    return NextResponse.redirect(new URL('/feed', request.url));
+  if (session && pathname.startsWith('/onboarding')) {
+    return Response.redirect(new URL('/feed', request.url));
   }
   
-  return NextResponse.next();
+  // Пропускаем запрос дальше
+  return new Response(null, {
+    status: 200,
+    headers: {
+      'x-middleware': 'true',
+    },
+  });
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     * - api (если нужно исключить API)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 };
