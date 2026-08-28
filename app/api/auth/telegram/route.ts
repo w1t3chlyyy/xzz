@@ -18,6 +18,7 @@ function verifyTelegramInitData(initData: string, botToken: string) {
   
   params.delete("hash");
 
+  // Сортируем ключи и создаем строку для проверки
   const dataCheckString = Array.from(params.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
@@ -25,14 +26,26 @@ function verifyTelegramInitData(initData: string, botToken: string) {
 
   console.log("DEBUG dataCheckString:", dataCheckString);
 
-  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
-  const computedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+  // ВАЖНО: Используем правильный алгоритм
+  // Сначала создаем HMAC-SHA256 ключ из botToken с ключом "WebAppData"
+  const secretKey = crypto
+    .createHmac("sha256", "WebAppData")
+    .update(botToken)
+    .digest();
+  
+  // Затем создаем HMAC-SHA256 хеш от dataCheckString с полученным ключом
+  const computedHash = crypto
+    .createHmac("sha256", secretKey)
+    .update(dataCheckString)
+    .digest("hex");
 
   console.log("DEBUG received hash:", hash);
   console.log("DEBUG computed hash:", computedHash);
   console.log("DEBUG bot token:", botToken.substring(0, 10) + "...");
+  console.log("DEBUG bot token length:", botToken.length);
 
-  if (computedHash !== hash) {
+  // Сравниваем хеши (регистронезависимо)
+  if (computedHash.toLowerCase() !== hash.toLowerCase()) {
     console.log("ERROR: Hash mismatch!");
     return null;
   }
@@ -46,7 +59,7 @@ function verifyTelegramInitData(initData: string, botToken: string) {
   }
 
   try {
-    const user = JSON.parse(userRaw);
+    const user = JSON.parse(decodeURIComponent(userRaw));
     console.log("DEBUG parsed user:", user);
     return user;
   } catch (e) {
@@ -58,13 +71,23 @@ function verifyTelegramInitData(initData: string, botToken: string) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log("DEBUG request body:", body);
+    console.log("DEBUG request body keys:", Object.keys(body));
     
-    const { initData } = body;
+    let { initData } = body;
+    
+    // Если initData приходит закодированной, декодируем
+    try {
+      initData = decodeURIComponent(initData);
+    } catch (e) {
+      // Если не удалось декодировать, оставляем как есть
+      console.log("DEBUG: initData not URL encoded");
+    }
+    
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
     console.log("DEBUG botToken exists:", !!botToken);
     console.log("DEBUG initData exists:", !!initData);
+    console.log("DEBUG initData length:", initData?.length);
 
     if (!initData || !botToken) {
       console.log("ERROR: Missing initData or bot token");
