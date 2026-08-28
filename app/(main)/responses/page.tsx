@@ -44,7 +44,13 @@ export default function ResponsesPage() {
       .eq("executor_id", user.id)
       .order("created_at", { ascending: false });
 
-    setResponses(data as MyResponse[] || []);
+    setResponses((data || []).map((response) => ({
+      ...response,
+      order: {
+        ...response.order[0],
+        client: response.order[0]?.client[0] || { first_name: "" },
+      },
+    })));
     setIsLoading(false);
   }
 

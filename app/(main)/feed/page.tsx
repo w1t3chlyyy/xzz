@@ -82,7 +82,21 @@ export default function FeedPage() {
       }
 
       const { data, error } = await query;
-      if (!error) setItems(data || []);
+      if (!error) {
+        const executors: Executor[] = (data || []).map((item) => ({
+          id: item.id,
+          first_name: item.first_name || "",
+          username: item.username || "",
+          avatar_url: item.avatar_url || null,
+          executor_profiles: item.executor_profiles[0] || {
+            skills: [],
+            bio: "",
+            rating: 0,
+            completed_orders: 0,
+          },
+        }));
+        setItems(executors);
+      }
     } else {
       // Исполнитель видит заказы
       let query = supabase
@@ -98,7 +112,19 @@ export default function FeedPage() {
       }
 
       const { data, error } = await query.order("created_at", { ascending: false });
-      if (!error) setItems(data || []);
+      if (!error) {
+        const orders: Order[] = (data || []).map((item) => ({
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          category: item.category,
+          budget_min: item.budget_min,
+          budget_max: item.budget_max,
+          created_at: item.created_at,
+          client: item.client[0] || { first_name: "", username: "" },
+        }));
+        setItems(orders);
+      }
     }
 
     setIsLoading(false);

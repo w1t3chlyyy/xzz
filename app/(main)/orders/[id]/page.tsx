@@ -76,7 +76,10 @@ export default function OrderDetailPage() {
       .single();
 
     if (orderData) {
-      setOrder(orderData as OrderDetail);
+      setOrder({
+        ...orderData,
+        client: orderData.client[0] || { id: "", first_name: "", username: "" },
+      });
     }
 
     // Загружаем отклики
@@ -89,7 +92,10 @@ export default function OrderDetailPage() {
       .eq("order_id", id)
       .order("created_at", { ascending: false });
 
-    setResponses(responsesData as Response[] || []);
+    setResponses((responsesData || []).map((response) => ({
+      ...response,
+      executor: response.executor[0] || { first_name: "", username: "" },
+    })));
     setIsLoading(false);
   }
 

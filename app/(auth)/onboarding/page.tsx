@@ -11,7 +11,6 @@ export default function OnboardingPage() {
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClient();
 
   useEffect(() => {
     expandTelegramApp();
@@ -21,6 +20,7 @@ export default function OnboardingPage() {
   const handleRoleSelect = async (role: string) => {
     setSelectedRole(role);
     setIsLoading(true);
+    const supabase = createClient();
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
