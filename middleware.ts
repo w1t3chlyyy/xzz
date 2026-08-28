@@ -1,16 +1,11 @@
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-
-// ДОБАВЬТЕ ЭТУ СТРОКУ
-export const runtime = 'nodejs'
+import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
-
+  // Создаем ответ
+  const response = NextResponse.next();
+  
+  // Создаем клиент Supabase с Edge-совместимыми методами
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -19,30 +14,39 @@ export async function middleware(request: NextRequest) {
         get(name: string) {
           return request.cookies.get(name)?.value;
         },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options });
-          response = NextResponse.next({
-            request: { headers: request.headers },
+        set(name: string, value: string, options: any) {
+          // Устанавливаем cookie в ответе
+          response.cookies.set({
+            name,
+            value,
+            ...options,
+            path: '/',
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
           });
-          response.cookies.set({ name, value, ...options });
         },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: "", ...options });
-          response = NextResponse.next({
-            request: { headers: request.headers },
+        remove(name: string, options: any) {
+          response.cookies.set({
+            name,
+            value: '',
+            ...options,
+            path: '/',
+            maxAge: 0,
           });
-          response.cookies.set({ name, value: "", ...options });
         },
       },
     }
   );
 
+  // Обновляем сессию
   await supabase.auth.getSession();
 
   return response;
 }
 
+// НЕ используем config.matcher, а используем export const config
 export const config = {
+  runtime: 'edge', // Явно указываем Edge
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
