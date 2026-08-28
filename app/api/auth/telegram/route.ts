@@ -5,32 +5,60 @@ import { createClient } from "@/lib/supabase/server";
 
 function verifyTelegramInitData(initData: string, botToken: string) {
   try {
-    const urlParams = new URLSearchParams(initData);
+    // Сначала пробуем декодировать
+    let decoded = initData;
+    try {
+      decoded = decodeURIComponent(initData);
+    } catch (e) {}
+    
+    const urlParams = new URLSearchParams(decoded);
     const hash = urlParams.get("hash");
     
     if (!hash) {
-      console.log("❌ No hash in initData");
+      console.log("❌ No hash");
       return null;
     }
     
     urlParams.delete("hash");
     
-    // ВАЖНО: user должен быть JSON строкой, а не объектом
-    // Если user пришёл как объект - конвертируем в JSON строку
+    // ===== ГЛАВНОЕ ИСПРАВЛЕНИЕ =====
+    // Получаем user и преобразуем в правильный JSON
     let userParam = urlParams.get("user");
-    if (userParam && userParam.startsWith('{') && !userParam.startsWith('{"')) {
-      // Парсим и сразу преобразуем обратно в JSON строку
+    if (userParam) {
       try {
+        // Пробуем парсить как JSON
         const userObj = JSON.parse(userParam);
+        // Преобразуем обратно в строку без пробелов и переносов
         userParam = JSON.stringify(userObj);
         // Обновляем параметр
         urlParams.set("user", userParam);
-        console.log("🔄 Converted user object to JSON string");
+        console.log("🔄 User converted to proper JSON");
       } catch (e) {
-        console.log("❌ Failed to parse user");
+        // Если не получилось, пробуем исправить вручную
+        try {
+          // Удаляем переносы строк и лишние пробелы
+          let cleaned = userParam
+            .replace(/\n/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          // Если это не полный JSON, оборачиваем в фигурные скобки
+          if (!cleaned.startsWith('{')) {
+            cleaned = '{' + cleaned + '}';
+          }
+          
+          const userObj = JSON.parse(cleaned);
+          userParam = JSON.stringify(userObj);
+          urlParams.set("user", userParam);
+          console.log("🔄 User cleaned and converted");
+        } catch (e2) {
+          console.log("❌ Failed to parse user:", e2);
+        }
       }
     }
+    // ===== КОНЕЦ ИСПРАВЛЕНИЯ =====
     
+    // Создаем dataCheckString
     const keys = Array.from(urlParams.keys()).sort();
     const dataCheckString = keys
       .map(key => `${key}=${urlParams.get(key)}`)
@@ -40,6 +68,7 @@ function verifyTelegramInitData(initData: string, botToken: string) {
     console.log(dataCheckString);
     console.log("---");
     
+    // Вычисляем хеш
     const secretKey = crypto
       .createHmac("sha256", "WebAppData")
       .update(botToken)
@@ -61,21 +90,16 @@ function verifyTelegramInitData(initData: string, botToken: string) {
     
     // Получаем пользователя
     const userRaw = urlParams.get("user");
-    if (!userRaw) {
-      console.log("❌ No user param");
-      return null;
-    }
+    if (!userRaw) return null;
     
-    let user;
     try {
-      user = JSON.parse(userRaw);
+      const user = JSON.parse(userRaw);
+      console.log("✅ User verified:", user.id, user.username);
+      return user;
     } catch (e) {
-      console.log("❌ Failed to parse user JSON");
+      console.log("❌ Failed to parse final user");
       return null;
     }
-    
-    console.log("✅ User verified:", user.id, user.username);
-    return user;
     
   } catch (error) {
     console.log("❌ Verification error:", error);
@@ -99,12 +123,11 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Если initData пришла как объект - конвертируем в строку
+    // Если initData пришла как объект
     if (typeof initData === 'object' && initData !== null) {
       const params = new URLSearchParams();
       for (const [key, value] of Object.entries(initData)) {
         if (value !== undefined && value !== null) {
-          // Если value - объект, конвертируем в JSON строку
           if (typeof value === 'object') {
             params.append(key, JSON.stringify(value));
           } else {
@@ -115,15 +138,6 @@ export async function POST(request: NextRequest) {
       initData = params.toString();
       console.log("🔄 Converted object to string");
     }
-    
-    // Если initData закодирована - декодируем
-    try {
-      const decoded = decodeURIComponent(initData);
-      if (decoded !== initData) {
-        initData = decoded;
-        console.log("🔄 Decoded URL encoding");
-      }
-    } catch (e) {}
     
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     
@@ -145,9 +159,9 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    console.log("✅ Verification successful for user:", tgUser.id);
+    console.log("✅ Verification successful!");
     
-    // Дальше код создания пользователя...
+    // Создаем пользователя
     const email = `tg${tgUser.id}@fiolet.app`;
     const password = crypto
       .createHmac("sha256", botToken)
