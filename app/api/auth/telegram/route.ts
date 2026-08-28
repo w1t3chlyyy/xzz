@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 
 function verifyTelegramInitData(initData: string, botToken: string) {
   try {
-    // 1. Парсим параметры
     const urlParams = new URLSearchParams(initData);
     const hash = urlParams.get("hash");
     
@@ -14,10 +13,24 @@ function verifyTelegramInitData(initData: string, botToken: string) {
       return null;
     }
     
-    // 2. Удаляем hash из параметров
     urlParams.delete("hash");
     
-    // 3. Сортируем ключи и создаем строку для проверки
+    // ВАЖНО: user должен быть JSON строкой, а не объектом
+    // Если user пришёл как объект - конвертируем в JSON строку
+    let userParam = urlParams.get("user");
+    if (userParam && userParam.startsWith('{') && !userParam.startsWith('{"')) {
+      // Парсим и сразу преобразуем обратно в JSON строку
+      try {
+        const userObj = JSON.parse(userParam);
+        userParam = JSON.stringify(userObj);
+        // Обновляем параметр
+        urlParams.set("user", userParam);
+        console.log("🔄 Converted user object to JSON string");
+      } catch (e) {
+        console.log("❌ Failed to parse user");
+      }
+    }
+    
     const keys = Array.from(urlParams.keys()).sort();
     const dataCheckString = keys
       .map(key => `${key}=${urlParams.get(key)}`)
@@ -27,14 +40,11 @@ function verifyTelegramInitData(initData: string, botToken: string) {
     console.log(dataCheckString);
     console.log("---");
     
-    // 4. Вычисляем хеш по алгоритму Telegram
-    // Сначала создаем HMAC ключ
     const secretKey = crypto
       .createHmac("sha256", "WebAppData")
       .update(botToken)
       .digest();
     
-    // Затем вычисляем хеш от dataCheckString
     const computedHash = crypto
       .createHmac("sha256", secretKey)
       .update(dataCheckString)
@@ -44,30 +54,24 @@ function verifyTelegramInitData(initData: string, botToken: string) {
     console.log("📤 Computed hash:", computedHash);
     console.log("✅ Match:", computedHash === hash);
     
-    // 5. Сравниваем
     if (computedHash !== hash) {
       console.log("❌ Hash mismatch!");
       return null;
     }
     
-    // 6. Получаем данные пользователя
-    const userParam = urlParams.get("user");
-    if (!userParam) {
+    // Получаем пользователя
+    const userRaw = urlParams.get("user");
+    if (!userRaw) {
       console.log("❌ No user param");
       return null;
     }
     
-    // 7. Парсим JSON (может быть закодирован)
     let user;
     try {
-      user = JSON.parse(decodeURIComponent(userParam));
-    } catch {
-      try {
-        user = JSON.parse(userParam);
-      } catch (e) {
-        console.log("❌ Failed to parse user JSON");
-        return null;
-      }
+      user = JSON.parse(userRaw);
+    } catch (e) {
+      console.log("❌ Failed to parse user JSON");
+      return null;
     }
     
     console.log("✅ User verified:", user.id, user.username);
@@ -82,70 +86,66 @@ function verifyTelegramInitData(initData: string, botToken: string) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log("📦 Body keys:", Object.keys(body));
-    
     let { initData } = body;
     
+    console.log("🔍 Request received");
+    console.log("📦 initData type:", typeof initData);
+    console.log("📦 initData length:", initData?.length);
+    
     if (!initData) {
-      console.log("❌ No initData in request");
       return NextResponse.json(
         { error: "Missing initData" },
         { status: 400 }
       );
     }
     
-    // Если initData пришла как объект - конвертируем
-    if (typeof initData === 'object') {
+    // Если initData пришла как объект - конвертируем в строку
+    if (typeof initData === 'object' && initData !== null) {
       const params = new URLSearchParams();
       for (const [key, value] of Object.entries(initData)) {
         if (value !== undefined && value !== null) {
-          params.append(key, String(value));
+          // Если value - объект, конвертируем в JSON строку
+          if (typeof value === 'object') {
+            params.append(key, JSON.stringify(value));
+          } else {
+            params.append(key, String(value));
+          }
         }
       }
       initData = params.toString();
       console.log("🔄 Converted object to string");
     }
     
-    console.log("📦 initData type:", typeof initData);
-    console.log("📦 initData length:", initData.length);
-    console.log("📦 initData preview:", initData.substring(0, 100) + "...");
+    // Если initData закодирована - декодируем
+    try {
+      const decoded = decodeURIComponent(initData);
+      if (decoded !== initData) {
+        initData = decoded;
+        console.log("🔄 Decoded URL encoding");
+      }
+    } catch (e) {}
     
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     
     if (!botToken) {
-      console.log("❌ No bot token in environment");
       return NextResponse.json(
         { error: "Server configuration error" },
         { status: 500 }
       );
     }
     
-    console.log("🔑 Bot token prefix:", botToken.substring(0, 10) + "...");
-    console.log("🔑 Bot token length:", botToken.length);
+    console.log("🔑 Bot token:", botToken.substring(0, 10) + "...");
     
-    // Пробуем проверить с сырыми данными
-    let tgUser = verifyTelegramInitData(initData, botToken);
-    
-    // Если не получилось, пробуем декодировать
-    if (!tgUser) {
-      console.log("🔄 Trying with decoded data...");
-      try {
-        const decoded = decodeURIComponent(initData);
-        tgUser = verifyTelegramInitData(decoded, botToken);
-      } catch (e) {
-        console.log("❌ Decode failed");
-      }
-    }
+    const tgUser = verifyTelegramInitData(initData, botToken);
     
     if (!tgUser) {
-      console.log("❌ Verification failed");
       return NextResponse.json(
         { error: "Invalid Telegram signature" },
         { status: 401 }
       );
     }
     
-    console.log("✅ Verification successful!");
+    console.log("✅ Verification successful for user:", tgUser.id);
     
     // Дальше код создания пользователя...
     const email = `tg${tgUser.id}@fiolet.app`;
