@@ -4,9 +4,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 function verifyTelegramInitData(initData: string, botToken: string) {
+  console.log("DEBUG initData:", initData);
+  
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
-  if (!hash) return null;
+  
+  console.log("DEBUG hash from params:", hash);
+  
+  if (!hash) {
+    console.log("ERROR: No hash found in initData");
+    return null;
+  }
+  
   params.delete("hash");
 
   const dataCheckString = Array.from(params.entries())
@@ -14,40 +23,61 @@ function verifyTelegramInitData(initData: string, botToken: string) {
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
 
+  console.log("DEBUG dataCheckString:", dataCheckString);
+
   const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
   const computedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
 
   console.log("DEBUG received hash:", hash);
   console.log("DEBUG computed hash:", computedHash);
-  console.log("DEBUG bot token length:", botToken.length);
+  console.log("DEBUG bot token:", botToken.substring(0, 10) + "...");
 
-  if (computedHash !== hash) return null;
+  if (computedHash !== hash) {
+    console.log("ERROR: Hash mismatch!");
+    return null;
+  }
 
   const userRaw = params.get("user");
-  if (!userRaw) return null;
+  console.log("DEBUG userRaw:", userRaw);
+  
+  if (!userRaw) {
+    console.log("ERROR: No user found in params");
+    return null;
+  }
 
-  return JSON.parse(userRaw) as {
-    id: number;
-    first_name?: string;
-    last_name?: string;
-    username?: string;
-    photo_url?: string;
-  };
+  try {
+    const user = JSON.parse(userRaw);
+    console.log("DEBUG parsed user:", user);
+    return user;
+  } catch (e) {
+    console.log("ERROR: Failed to parse user JSON:", e);
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { initData } = await request.json();
+    const body = await request.json();
+    console.log("DEBUG request body:", body);
+    
+    const { initData } = body;
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
+    console.log("DEBUG botToken exists:", !!botToken);
+    console.log("DEBUG initData exists:", !!initData);
+
     if (!initData || !botToken) {
+      console.log("ERROR: Missing initData or bot token");
       return NextResponse.json({ error: "Missing initData or bot token" }, { status: 400 });
     }
 
     const tgUser = verifyTelegramInitData(initData, botToken);
     if (!tgUser) {
+      console.log("ERROR: Invalid Telegram signature");
       return NextResponse.json({ error: "Invalid Telegram signature" }, { status: 401 });
     }
+
+    console.log("DEBUG tgUser verified:", tgUser);
 
     const email = `tg${tgUser.id}@fiolet.app`;
     const password = crypto
@@ -65,6 +95,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (createError && !createError.message.includes("already registered")) {
+      console.log("ERROR creating user:", createError);
       throw createError;
     }
 
@@ -76,12 +107,13 @@ export async function POST(request: NextRequest) {
     });
 
     if (signInError || !signInData.user) {
+      console.log("ERROR signing in:", signInError);
       throw signInError || new Error("Sign in failed");
     }
 
     const userId = signInData.user.id;
 
-    // Обновляем/создаём профиль в public.users, не трогая role/subscription
+    // Обновляем/создаём профиль в public.users
     await admin.from("users").upsert(
       {
         id: userId,
@@ -100,6 +132,7 @@ export async function POST(request: NextRequest) {
       .eq("id", userId)
       .single();
 
+    console.log("DEBUG auth successful, user role:", userData?.role);
     return NextResponse.json({ role: userData?.role || null });
   } catch (error) {
     console.error("Telegram auth error:", error);
