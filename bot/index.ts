@@ -1,212 +1,249 @@
+// Загружаем переменные окружения из .env / .env.local ЯВНО.
+// Next.js делает это сам для приложения, но этот файл запускается
+// как отдельный процесс (node/tsx), поэтому без dotenv process.env.* будет пустым —
+// и это самая частая причина, почему бот "не реагирует" вообще ни на что.
+import "dotenv/config";
+
 import TelegramBot from "node-telegram-bot-api";
 import { createClient } from "@supabase/supabase-js";
 
-// ВРЕМЕННО для диагностики — удалить после проверки
-console.log(
-  "BOT TOKEN fingerprint:",
-  process.env.TELEGRAM_BOT_TOKEN?.length,
-  process.env.TELEGRAM_BOT_TOKEN?.slice(0, 6)
-);
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true });
-// ...остальной код без изменений
+if (!BOT_TOKEN) {
+  throw new Error(
+    "TELEGRAM_BOT_TOKEN не задан. Проверьте .env.local и что процесс бота запускается с загрузкой env (см. package.json -> \"bot\")."
+  );
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const ADMIN_IDS = (process.env.ADMIN_TELEGRAM_ID || "").split(",").map(id => parseInt(id.trim()));
+// Список админов: раньше при пустом ADMIN_TELEGRAM_ID получался массив [NaN],
+// из-за чего isAdmin() всегда возвращал false — /admin отвечал "нет доступа"
+// даже настоящему админу. Теперь пустые/некорректные значения отфильтровываются.
+const ADMIN_IDS = (process.env.ADMIN_TELEGRAM_ID || "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean)
+  .map((id) => parseInt(id, 10))
+  .filter((id) => !Number.isNaN(id));
 
 function isAdmin(userId: number): boolean {
   return ADMIN_IDS.includes(userId);
 }
 
-// Команда /start
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from?.id;
+async function start() {
+  const bot = new TelegramBot(BOT_TOKEN!, { polling: false });
 
-  if (!userId) return;
+  // Если на этот токен когда-то был установлен webhook (например, при попытке
+  // задеплоить бота на Vercel как serverless-функцию), Telegram НЕ будет
+  // присылать обновления через long polling — вместо этого polling будет падать
+  // с ошибкой 409 Conflict. Явно снимаем webhook перед стартом polling.
+  await bot.deleteWebHook();
+  await bot.startPolling();
 
-  // Получаем приветствие из настроек
-  const { data: settings } = await supabase
-    .from("settings")
-    .select("welcome_message")
-    .single();
+  console.log("🤖 Telegram bot started (polling)");
+  console.log("Admin IDs:", ADMIN_IDS.length ? ADMIN_IDS : "не заданы (проверьте ADMIN_TELEGRAM_ID)");
 
-  const welcomeText = settings?.welcome_message || 
-    `👋 Добро пожаловать в <b>1337</b>!\n\n` +
-    `🎯 Фриланс биржа прямо в Telegram\n` +
-    `💼 Находите заказы и исполнителей\n` +
-    `⚡️ AI-помощник для откликов\n\n` +
-    `Нажмите кнопку ниже, чтобы открыть приложение:`;
-
-  const keyboard = {
-    inline_keyboard: [
-      [
-        {
-          text: "🚀 Открыть 1337",
-          web_app: { url: process.env.NEXT_PUBLIC_SITE_URL! },
-        },
-      ],
-    ],
-  };
-
-  bot.sendMessage(chatId, welcomeText, {
-    parse_mode: "HTML",
-    reply_markup: keyboard,
+  // Логируем ошибки polling — раньше они были не видны, и бот "молча" не отвечал.
+  bot.on("polling_error", (err) => {
+    console.error("Polling error:", err.message);
   });
-});
 
-// Команда /admin
-bot.onText(/\/admin/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from?.id;
-
-  if (!userId || !isAdmin(userId)) {
-    bot.sendMessage(chatId, "⛔️ У вас нет доступа к админ-панели.");
-    return;
-  }
-
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: "📊 Статистика", callback_data: "admin_stats" },
-        { text: "✏️ Приветствие", callback_data: "admin_welcome" },
-      ],
-      [
-        { text: "💰 Цены", callback_data: "admin_prices" },
-        { text: "👥 Пользователи", callback_data: "admin_users" },
-      ],
-    ],
-  };
-
-  bot.sendMessage(chatId, "🔧 <b>Админ-панель 1337</b>\n\nВыберите действие:", {
-    parse_mode: "HTML",
-    reply_markup: keyboard,
+  bot.on("webhook_error", (err) => {
+    console.error("Webhook error:", err.message);
   });
-});
 
-// Обработка callback
-bot.on("callback_query", async (query) => {
-  const chatId = query.message?.chat.id;
-  const userId = query.from.id;
-  const data = query.data;
+  // Команда /start
+  bot.onText(/^\/start\b/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    if (!userId) return;
 
-  if (!chatId || !data) return;
-
-  if (!isAdmin(userId)) {
-    bot.answerCallbackQuery(query.id, { text: "Нет доступа" });
-    return;
-  }
-
-  if (data === "admin_stats") {
-    // Статистика
-    const { count: usersCount } = await supabase
-      .from("users")
-      .select("*", { count: "exact", head: true });
-
-    const { count: ordersCount } = await supabase
-      .from("orders")
-      .select("*", { count: "exact", head: true });
-
-    const { count: responsesCount } = await supabase
-      .from("responses")
-      .select("*", { count: "exact", head: true });
-
-    const { data: payments } = await supabase
-      .from("payments")
-      .select("amount")
-      .eq("status", "paid");
-
-    const totalRevenue = payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
-
-    const statsText = 
-      `📊 <b>Статистика 1337</b>\n\n` +
-      `👥 Пользователей: <b>${usersCount || 0}</b>\n` +
-      `📋 Заказов: <b>${ordersCount || 0}</b>\n` +
-      `💬 Откликов: <b>${responsesCount || 0}</b>\n` +
-      `💰 Доход: <b>${totalRevenue.toLocaleString()} ₽</b>`;
-
-    bot.editMessageText(statsText, {
-      chat_id: chatId,
-      message_id: query.message?.message_id,
-      parse_mode: "HTML",
-    });
-  }
-
-  if (data === "admin_welcome") {
-    bot.sendMessage(chatId, 
-      "✏️ Отправьте новое приветственное сообщение.\n\n" +
-      "Текущее можно посмотреть через /start",
-      { parse_mode: "HTML" }
-    );
-
-    // Устанавливаем состояние ожидания
-    bot.once("message", async (msg) => {
-      if (msg.chat.id !== chatId) return;
-
-      await supabase
+    try {
+      const { data: settings } = await supabase
         .from("settings")
-        .update({ welcome_message: msg.text })
-        .eq("id", 1);
+        .select("welcome_message")
+        .single();
 
-      bot.sendMessage(chatId, "✅ Приветственное сообщение обновлено!");
-    });
-  }
+      const welcomeText =
+        settings?.welcome_message ||
+        `👋 Добро пожаловать в <b>1337</b>!\n\n` +
+          `🎯 Фриланс биржа прямо в Telegram\n` +
+          `💼 Находите заказы и исполнителей\n\n` +
+          `Нажмите кнопку ниже, чтобы открыть приложение:`;
 
-  if (data === "admin_prices") {
-    const { data: settings } = await supabase
-      .from("settings")
-      .select("pro_price, ai_pro_price")
-      .single();
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: "🚀 Открыть 1337",
+              web_app: { url: process.env.NEXT_PUBLIC_SITE_URL! },
+            },
+          ],
+        ],
+      };
 
-    const pricesText = 
-      `💰 <b>Текущие цены</b>\n\n` +
-      `Pro: <b>${settings?.pro_price || 990} ₽</b>\n` +
-      `AI Pro: <b>${settings?.ai_pro_price || 1990} ₽</b>\n\n` +
-      `Отправьте новые цены в формате: PRO AI_PRO\n` +
-      `Пример: <code>990 1990</code>`;
+      await bot.sendMessage(chatId, welcomeText, {
+        parse_mode: "HTML",
+        reply_markup: keyboard,
+      });
+    } catch (err) {
+      console.error("Error handling /start:", err);
+      await bot.sendMessage(chatId, "⚠️ Не удалось загрузить приветствие, попробуйте позже.");
+    }
+  });
 
-    bot.sendMessage(chatId, pricesText, { parse_mode: "HTML" });
+  // Команда /admin
+  bot.onText(/^\/admin\b/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
 
-    bot.once("message", async (msg) => {
-      if (msg.chat.id !== chatId) return;
+    if (!userId || !isAdmin(userId)) {
+      await bot.sendMessage(chatId, "⛔️ У вас нет доступа к админ-панели.");
+      return;
+    }
 
-      const prices = msg.text?.split(" ").map(p => parseInt(p));
-      if (prices && prices.length === 2 && prices.every(p => !isNaN(p))) {
-        await supabase
-          .from("settings")
-          .update({ pro_price: prices[0], ai_pro_price: prices[1] })
-          .eq("id", 1);
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: "📊 Статистика", callback_data: "admin_stats" },
+          { text: "✏️ Приветствие", callback_data: "admin_welcome" },
+        ],
+        [
+          { text: "💰 Цены", callback_data: "admin_prices" },
+          { text: "👥 Пользователи", callback_data: "admin_users" },
+        ],
+      ],
+    };
 
-        bot.sendMessage(chatId, "✅ Цены обновлены!");
-      } else {
-        bot.sendMessage(chatId, "❌ Неверный формат. Используйте: 990 1990");
-      }
-    });
-  }
-
-  if (data === "admin_users") {
-    const { data: users } = await supabase
-      .from("users")
-      .select("telegram_id, first_name, username, role, subscription_tier, created_at")
-      .order("created_at", { ascending: false })
-      .limit(10);
-
-    let usersText = `👥 <b>Последние 10 пользователей</b>\n\n`;
-    users?.forEach((u, i) => {
-      usersText += `${i + 1}. <b>${u.first_name || u.username}</b> — ${u.role || "без роли"} — ${u.subscription_tier}\n`;
-    });
-
-    bot.editMessageText(usersText, {
-      chat_id: chatId,
-      message_id: query.message?.message_id,
+    await bot.sendMessage(chatId, "🔧 <b>Админ-панель 1337</b>\n\nВыберите действие:", {
       parse_mode: "HTML",
+      reply_markup: keyboard,
     });
-  }
+  });
 
-  bot.answerCallbackQuery(query.id);
+  // Обработка callback
+  bot.on("callback_query", async (query) => {
+    const chatId = query.message?.chat.id;
+    const userId = query.from.id;
+    const data = query.data;
+
+    if (!chatId || !data) return;
+
+    if (!isAdmin(userId)) {
+      await bot.answerCallbackQuery(query.id, { text: "Нет доступа" });
+      return;
+    }
+
+    try {
+      if (data === "admin_stats") {
+        const { count: usersCount } = await supabase
+          .from("users")
+          .select("*", { count: "exact", head: true });
+
+        const { count: ordersCount } = await supabase
+          .from("orders")
+          .select("*", { count: "exact", head: true });
+
+        const { count: responsesCount } = await supabase
+          .from("responses")
+          .select("*", { count: "exact", head: true });
+
+        const { data: payments } = await supabase
+          .from("payments")
+          .select("amount")
+          .eq("status", "paid");
+
+        const totalRevenue = payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
+
+        const statsText =
+          `📊 <b>Статистика 1337</b>\n\n` +
+          `👥 Пользователей: <b>${usersCount || 0}</b>\n` +
+          `📋 Заказов: <b>${ordersCount || 0}</b>\n` +
+          `💬 Откликов: <b>${responsesCount || 0}</b>\n` +
+          `💰 Доход: <b>${totalRevenue.toLocaleString()} ₽</b>`;
+
+        await bot.editMessageText(statsText, {
+          chat_id: chatId,
+          message_id: query.message?.message_id,
+          parse_mode: "HTML",
+        });
+      }
+
+      if (data === "admin_welcome") {
+        await bot.sendMessage(
+          chatId,
+          "✏️ Отправьте новое приветственное сообщение.\n\nТекущее можно посмотреть через /start",
+          { parse_mode: "HTML" }
+        );
+
+        bot.once("message", async (msg) => {
+          if (msg.chat.id !== chatId) return;
+
+          await supabase.from("settings").update({ welcome_message: msg.text }).eq("id", 1);
+
+          await bot.sendMessage(chatId, "✅ Приветственное сообщение обновлено!");
+        });
+      }
+
+      if (data === "admin_prices") {
+        const { data: settings } = await supabase
+          .from("settings")
+          .select("pro_price")
+          .single();
+
+        const pricesText =
+          `💰 <b>Текущая цена</b>\n\n` +
+          `Pro: <b>${settings?.pro_price || 990} ₽</b>\n\n` +
+          `Отправьте новую цену числом.\n` +
+          `Пример: <code>990</code>`;
+
+        await bot.sendMessage(chatId, pricesText, { parse_mode: "HTML" });
+
+        bot.once("message", async (msg) => {
+          if (msg.chat.id !== chatId) return;
+
+          const price = parseInt(msg.text || "", 10);
+          if (!isNaN(price)) {
+            await supabase.from("settings").update({ pro_price: price }).eq("id", 1);
+            await bot.sendMessage(chatId, "✅ Цена обновлена!");
+          } else {
+            await bot.sendMessage(chatId, "❌ Неверный формат. Используйте: 990");
+          }
+        });
+      }
+
+      if (data === "admin_users") {
+        const { data: users } = await supabase
+          .from("users")
+          .select("telegram_id, first_name, username, role, subscription_tier, created_at")
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        let usersText = `👥 <b>Последние 10 пользователей</b>\n\n`;
+        users?.forEach((u, i) => {
+          usersText += `${i + 1}. <b>${u.first_name || u.username}</b> — ${u.role || "без роли"} — ${u.subscription_tier}\n`;
+        });
+
+        await bot.editMessageText(usersText, {
+          chat_id: chatId,
+          message_id: query.message?.message_id,
+          parse_mode: "HTML",
+        });
+      }
+
+      await bot.answerCallbackQuery(query.id);
+    } catch (err) {
+      console.error("Error handling callback_query:", err);
+      await bot.answerCallbackQuery(query.id, { text: "Ошибка, попробуйте ещё раз" });
+    }
+  });
+}
+
+start().catch((err) => {
+  console.error("Fatal error starting bot:", err);
+  process.exit(1);
 });
-
-console.log("🤖 Telegram bot started");
