@@ -6,28 +6,19 @@ import { createClient } from "@/lib/supabase/client";
 import { getTelegramUser } from "@/lib/telegram/webapp";
 import {
   Briefcase,
-  Sparkles,
   Plus,
   Trash2,
   ExternalLink,
   Save,
   Check,
-  Star,
   Award,
-  Globe,
-  Send,
   Code2,
-  Sliders,
   Eye,
   Edit3,
-  Bot,
-  Loader2,
   DollarSign,
   User,
   ShieldCheck,
-  ChevronRight
 } from "lucide-react";
-import Link from "next/link";
 
 interface PortfolioProject {
   id: string;
@@ -108,9 +99,6 @@ export default function PortfolioPage() {
   const [newProjLink, setNewProjLink] = useState("");
   const [newProjBudget, setNewProjBudget] = useState("");
 
-  // AI Assistant State
-  const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const [aiNotice, setAiNotice] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
 
@@ -268,42 +256,6 @@ export default function PortfolioPage() {
   const handleDeleteProject = (projectId: string) => {
     const updated = projects.filter((p) => p.id !== projectId);
     setProjects(updated);
-  };
-
-  const handleAiEnhanceBio = async () => {
-    setIsAiGenerating(true);
-    setAiNotice(null);
-
-    try {
-      const response = await fetch("/api/ai/draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskDescription: `Специализация: ${specialization}. Стек: ${skills.join(", ")}. Черновик резюме: ${bio}`,
-          customInstructions: "Перепиши это резюме исполнителя для биржи фриланса в Telegram. Сделай его структурированным, убедительным, подчеркни надежность, опыт, стек и выгоды для заказчиков. Объем 3-4 емких абзаца без лишней воды.",
-        }),
-      });
-
-      const data = await response.json();
-      if (data.draft) {
-        setBio(data.draft);
-        setAiNotice("Резюме успешно улучшено с помощью AI!");
-      } else {
-        // Fallback enhancement
-        setBio(
-          `⚡ Специализируюсь на создании качественных Telegram Mini Apps, ботов и веб-сервисов с глубокой интеграцией AI и платежных шлюзов.\n\n🛠 Стек и технологии: ${skills.slice(0, 5).join(", ")}.\n\n💼 Гарантирую: прозрачную коммуникацию в Telegram, соблюдение сроков, адаптивную верстку и чистый масштабируемый код.`
-        );
-        setAiNotice("Резюме обновлено!");
-      }
-    } catch {
-      setBio(
-        `⚡ Специализируюсь на создании качественных Telegram Mini Apps, ботов и веб-сервисов с глубокой интеграцией AI и платежных шлюзов.\n\n🛠 Стек и технологии: ${skills.slice(0, 5).join(", ")}.\n\n💼 Гарантирую: прозрачную коммуникацию в Telegram, соблюдение сроков, адаптивную верстку и чистый масштабируемый код.`
-      );
-      setAiNotice("Резюме обновлено!");
-    } finally {
-      setIsAiGenerating(false);
-      setTimeout(() => setAiNotice(null), 4000);
-    }
   };
 
   return (
@@ -535,27 +487,7 @@ export default function PortfolioPage() {
                 <label className="text-xs font-bold text-slate-900">
                   О себе и опыт работы
                 </label>
-                <button
-                  type="button"
-                  onClick={handleAiEnhanceBio}
-                  disabled={isAiGenerating}
-                  className="text-[11px] font-extrabold text-violet-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-xl flex items-center gap-1 hover:bg-purple-100 transition-colors disabled:opacity-50"
-                >
-                  {isAiGenerating ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Bot className="w-3.5 h-3.5" />
-                  )}
-                  <span>AI Улучшить текст</span>
-                </button>
               </div>
-
-              {aiNotice && (
-                <div className="mb-2 p-2 rounded-xl bg-purple-100 text-purple-800 text-[11px] font-bold flex items-center gap-1.5 border border-purple-200">
-                  <Sparkles className="w-3.5 h-3.5 text-violet-700 shrink-0" />
-                  <span>{aiNotice}</span>
-                </div>
-              )}
 
               <textarea
                 value={bio}
