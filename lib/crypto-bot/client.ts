@@ -1,13 +1,34 @@
-"use server";
+import crypto from 'crypto';
 
-const CRYPTOBOT_API_URL = "https://pay.crypt.bot/api";
-
-interface CreateInvoiceParams {
-  amount: number;
-  asset?: string;
-  description?: string;
+export interface CryptoBotInvoice {
+  invoice_id: string;
+  status: string;
+  hash: string;
+  asset: string;
+  amount: string;
+  pay_url?: string;
+  created_at: string;
+  allow_comments?: boolean;
+  allow_anonymous?: boolean;
+  expiration?: string;
+  paid_at?: string;
+  paid_anonymously?: boolean;
+  comment?: string;
   hidden_message?: string;
-  paid_btn_name?: string;
+  payload?: string;
+}
+
+export interface CryptoBotWebhook {
+  update_id: number;
+  update_type: 'invoice_paid' | 'invoice_created' | 'invoice_expired';
+  invoice: CryptoBotInvoice;
+}
+
+export interface CreateInvoiceParams {
+  asset: 'TON' | 'BTC' | 'USDT' | 'ETH';
+  amount: string;
+  description?: string;
+  paid_btn_name?: 'viewItem' | 'openChannel' | 'openBot' | 'callback' | 'openUrl';
   paid_btn_url?: string;
   payload?: string;
   allow_comments?: boolean;
@@ -15,70 +36,153 @@ interface CreateInvoiceParams {
   expires_in?: number;
 }
 
-interface Invoice {
-  invoice_id: number;
-  status: string;
-  hash: string;
-  asset: string;
-  amount: string;
-  pay_url: string;
-  description?: string;
-  created_at: string;
-  allow_comments: boolean;
-  allow_anonymous: boolean;
-  expiration_date?: string;
-  paid_at?: string;
-  paid_anonymously?: boolean;
-  comment?: string;
-  hidden_message?: string;
-  payload?: string;
-  paid_btn_name?: string;
-  paid_btn_url?: string;
-}
+export class CryptoBotClient {
+  private apiKey: string;
+  private baseUrl: string;
+  private webhookToken?: string;
 
-export async function createInvoice(params: CreateInvoiceParams): Promise<Invoice> {
-  const response = await fetch(`${CRYPTOBOT_API_URL}/createInvoice`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Crypto-Pay-API-Token": process.env.CRYPTOBOT_API_TOKEN!,
-    },
-    body: JSON.stringify(params),
-  });
-
-  const data = await response.json();
-
-  if (!data.ok) {
-    throw new Error(data.error?.name || "Failed to create invoice");
+  constructor(apiKey: string, testnet: boolean = false, webhookToken?: string) {
+    this.apiKey = apiKey;
+    this.baseUrl = testnet
+      ? 'https://testnet-pay.crypt.bot/api'
+      : 'https://pay.crypt.bot/api';
+    this.webhookToken = webhookToken;
   }
 
-  return data.result;
-}
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: any
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {
+      'Crypto-Pay-API-Token': this.apiKey,
+      'Content-Type': 'application/json',
+    };
 
-export async function getInvoices(params?: { asset?: string; invoice_ids?: string; status?: string }): Promise<Invoice[]> {
-  const queryParams = new URLSearchParams();
-  if (params?.asset) queryParams.append("asset", params.asset);
-  if (params?.invoice_ids) queryParams.append("invoice_ids", params.invoice_ids);
-  if (params?.status) queryParams.append("status", params.status);
+    const options: RequestInit = {
+      method,
+      headers,
+    };
 
-  const response = await fetch(`${CRYPTOBOT_API_URL}/getInvoices?${queryParams}`, {
-    headers: {
-      "Crypto-Pay-API-Token": process.env.CRYPTOBOT_API_TOKEN!,
-    },
-  });
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
 
-  const data = await response.json();
+    const response = await fetch(url, options);
+    const data = await response.json();
 
-  if (!data.ok) {
-    throw new Error(data.error?.name || "Failed to get invoices");
+    if (!response.ok) {
+      throw new Error(`CryptoBot API error: ${data.error || response.statusText}`);
+    }
+
+    return data as T;
   }
 
-  return data.result.items;
+  async createInvoice(params: CreateInvoiceParams): Promise<CryptoBotInvoice> {
+    const result = await this.request<{
+      ok: boolean;
+      result: CryptoBotInvoice;
+    }>('POST', '/createInvoice', params);
+
+    return result.result;
+  }
+
+  async getInvoices(
+    asset?: string,
+    status?: string,
+    offset?: number,
+    count?: number
+  ): Promise<CryptoBotInvoice[]> {
+    const params = new URLSearchParams();
+    if (asset) params.append('asset', asset);
+    if (status) params.append('status', status);
+    if (offset) params.append('offset', String(offset));
+    if (count) params.append('count', String(count));
+
+    const result = await this.request<{
+      ok: boolean;
+      result: {
+        items: CryptoBotInvoice[];
+        total: number;
+      };
+    }>('GET', `/getInvoices?${params.toString()}`);
+
+    return result.result.items;
+  }
+
+  async getBalance(): Promise<Record<string, number>> {
+    const result = await this.request<{
+      ok: boolean;
+      result: Array<{ currency_code: string; available: number; frozen: number; }>;
+    }>('GET', '/getBalance');
+
+    return result.result.reduce((acc, item) => {
+      acc[item.currency_code] = item.available;
+      return acc;
+    }, {} as Record<string, number>);
+  }
+
+  async getMe(): Promise<{ app_id: number; name: string; payment_processing_bot_username: string }> {
+    const result = await this.request<{
+      ok: boolean;
+      result: { app_id: number; name: string; payment_processing_bot_username: string };
+    }>('GET', '/getMe');
+
+    return result.result;
+  }
+
+  verifyWebhook(body: string, signature: string): boolean {
+    if (!this.webhookToken) {
+      throw new Error('Webhook token is required for signature verification');
+    }
+
+    const secret = crypto.createHash('sha256').update(this.webhookToken).digest();
+    const hmac = crypto.createHmac('sha256', secret).update(body).digest('hex');
+    return hmac === signature;
+  }
+
+  parseWebhook(body: string, signature: string): CryptoBotWebhook | null {
+    try {
+      if (this.webhookToken) {
+        const isValid = this.verifyWebhook(body, signature);
+        if (!isValid) {
+          console.warn('Webhook signature verification failed');
+          return null;
+        }
+      }
+
+      const data = JSON.parse(body);
+      return data as CryptoBotWebhook;
+    } catch (error) {
+      console.error('Error parsing webhook:', error);
+      return null;
+    }
+  }
 }
 
+// Singleton instance
+let cryptoBotInstance: CryptoBotClient | null = null;
+
+export function getCryptoBotClient(): CryptoBotClient {
+  if (!cryptoBotInstance) {
+    const apiKey = process.env.CRYPTO_BOT_API_KEY || '';
+    const testnet = process.env.CRYPTO_BOT_TESTNET === 'true';
+    const webhookToken = process.env.CRYPTO_BOT_WEBHOOK_TOKEN || '';
+
+    if (!apiKey) {
+      throw new Error('CRYPTO_BOT_API_KEY is not set in environment variables');
+    }
+
+    cryptoBotInstance = new CryptoBotClient(apiKey, testnet, webhookToken);
+  }
+
+  return cryptoBotInstance;
+}
+
+// Utility function for webhook signature verification (exported separately)
 export function verifyWebhookSignature(body: string, signature: string, token: string): boolean {
-  const crypto = require("crypto");
-  const secret = crypto.createHash("sha256").update(token).digest();
-  const hmac = crypto.createHmac("sha256", secret).update(body).digest("hex");
+  const secret = crypto.createHash('sha256').update(token).digest();
+  const hmac = crypto.createHmac('sha256', secret).update(body).digest('hex');
   return hmac === signature;
 }
