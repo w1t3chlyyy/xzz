@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
@@ -28,7 +28,8 @@ import {
   Heart,
   Share2,
   Bookmark,
-  Flag
+  Flag,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -78,19 +79,12 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [responseBudget, setResponseBudget] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
-    setRole(savedRole);
-    loadOrder();
-    loadUser();
-  }, []);
-
-  const loadUser = async () => {
+  const loadUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setUser(user);
-  };
+  }, [supabase]);
 
-  const loadOrder = async () => {
+  const loadOrder = useCallback(async () => {
     setLoading(true);
     try {
       const { data: orderData, error: orderError } = await supabase
@@ -131,7 +125,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [supabase, params.id]);
+
+  useEffect(() => {
+    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
+    setRole(savedRole);
+    loadOrder();
+    loadUser();
+  }, [loadOrder, loadUser]);
 
   const handleSubmitResponse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -529,6 +530,3 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     </div>
   );
 }
-
-// Добавляем недостающий импорт FileText
-import { FileText } from "lucide-react";
