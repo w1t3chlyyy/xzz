@@ -79,7 +79,7 @@ async function start() {
         inline_keyboard: [
           [
             {
-              text: "🚀 Открыть 1337",
+              text: "Открыть 1337",
               web_app: { url: process.env.NEXT_PUBLIC_SITE_URL! },
             },
           ],
