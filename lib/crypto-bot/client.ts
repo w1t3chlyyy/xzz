@@ -1,3 +1,4 @@
+// lib/crypto-bot/client.ts
 import crypto from 'crypto';
 
 export interface CryptoBotInvoice {
@@ -166,12 +167,17 @@ let cryptoBotInstance: CryptoBotClient | null = null;
 
 export function getCryptoBotClient(): CryptoBotClient {
   if (!cryptoBotInstance) {
-    const apiKey = process.env.CRYPTO_BOT_API_KEY || '';
-    const testnet = process.env.CRYPTO_BOT_TESTNET === 'true';
-    const webhookToken = process.env.CRYPTO_BOT_WEBHOOK_TOKEN || '';
+    // ВАЖНО: раньше здесь читались CRYPTO_BOT_API_KEY / CRYPTO_BOT_TESTNET /
+    // CRYPTO_BOT_WEBHOOK_TOKEN, а .env.example и API-роут платежей использовали
+    // CRYPTOBOT_API_TOKEN — эти переменные никогда не совпадали, поэтому
+    // getCryptoBotClient() всегда падал с ошибкой "not set", даже если токен
+    // был задан. Теперь имена приведены к единому стилю.
+    const apiKey = process.env.CRYPTOBOT_API_TOKEN || '';
+    const testnet = process.env.CRYPTOBOT_TESTNET === 'true';
+    const webhookToken = process.env.CRYPTOBOT_WEBHOOK_TOKEN || '';
 
     if (!apiKey) {
-      throw new Error('CRYPTO_BOT_API_KEY is not set in environment variables');
+      throw new Error('CRYPTOBOT_API_TOKEN is not set in environment variables');
     }
 
     cryptoBotInstance = new CryptoBotClient(apiKey, testnet, webhookToken);
