@@ -293,11 +293,15 @@ async function handleCallback(cq: any, supabase: AdminClient) {
   await telegram.answerCallbackQuery(cq.id);
 }
 
-// Общая точка выдачи подписки — используется и админом (ручное подтверждение),
-// и вебхуком CryptoBot, и обработчиком successful_payment для Stars.
-// ВАЖНО: это единственное место, где subscription_tier/expires_at меняются,
-// и вызывается оно только из серверного кода с service_role.
-export async function confirmPayment(supabase: AdminClient, paymentId: string, adminId?: number) {
+// Общая точка выдачи подписки внутри этого файла — используется и админом
+// (ручное подтверждение), и обработчиком successful_payment для Stars.
+// ВАЖНО: это единственное место в файле, где subscription_tier/expires_at
+// меняются, и вызывается оно только из серверного кода с service_role.
+// Функция намеренно НЕ экспортируется: route.ts в App Router разрешает
+// экспортировать только GET/POST/... — любой другой export ломает сборку
+// ("is not a valid Route export field"). Логика для CryptoBot-вебхука
+// продублирована в app/api/payments/webhook/route.ts самостоятельно.
+async function confirmPayment(supabase: AdminClient, paymentId: string, adminId?: number) {
   const { data: payment } = await supabase.from("payments").select("*").eq("id", paymentId).single();
   if (!payment || payment.status === "paid") return;
 
@@ -331,7 +335,7 @@ export async function confirmPayment(supabase: AdminClient, paymentId: string, a
   }
 }
 
-export async function rejectPayment(supabase: AdminClient, paymentId: string, adminId?: number) {
+async function rejectPayment(supabase: AdminClient, paymentId: string, adminId?: number) {
   const { data: payment } = await supabase.from("payments").select("*").eq("id", paymentId).single();
   if (!payment || payment.status === "paid") return;
 
@@ -345,3 +349,4 @@ export async function rejectPayment(supabase: AdminClient, paymentId: string, ad
     await telegram.sendMessage(userRow.telegram_id, "❌ Оплата не подтверждена. Если это ошибка — напишите в поддержку.");
   }
 }
+
