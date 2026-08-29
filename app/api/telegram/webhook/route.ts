@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { telegram } from "@/lib/telegram/bot-api";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { telegramEntitiesToHtml, stripCommandWithEntities, type TelegramMessageEntity } from "@/lib/telegram/entities";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -56,6 +57,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
   const chatId = msg.chat.id;
   const userId: number | undefined = msg.from?.id;
   const text: string = msg.text || "";
+  const caption: string = msg.caption || "";
 
   // 1. Успешная оплата Telegram Stars
   if (msg.successful_payment) {
@@ -72,7 +74,15 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 2. Фото = вероятный чек об оплате по реквизитам
+  // 2. Фото с подписью "/setwelcome ..." от админа — задать фото + текст приветствия.
+  //    Проверяем это ДО общей логики "фото = чек об оплате" ниже, чтобы админ
+  //    случайно не отправил свою картинку как подтверждение платежа.
+  if (msg.photo && userId && isAdmin(userId) && /^\/setwelcome\b/.test(caption)) {
+    await handleSetWelcomePhoto(msg, supabase);
+    return;
+  }
+
+  // 3. Фото = вероятный чек об оплате по реквизитам
   if (msg.photo && userId) {
     const { data: pending } = await supabase
       .from("payments")
@@ -116,31 +126,24 @@ async function handleMessage(msg: any, supabase: AdminClient) {
 
   if (!text) return;
 
-  // 3. /start
+  // 4. /start
   if (/^\/start\b/.test(text)) {
-    const { data: settings } = await supabase.from("settings").select("welcome_message").single();
-    const welcomeText =
-      settings?.welcome_message ||
-      `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`;
-
-    await telegram.sendMessage(chatId, welcomeText, {
-      reply_markup: {
-        inline_keyboard: [[{ text: "🚀 Открыть 1337", web_app: { url: process.env.NEXT_PUBLIC_SITE_URL } }]],
-      },
-    });
+    await sendWelcome(chatId, supabase);
     return;
   }
 
   // Всё, что ниже — только для админов
   if (!userId || !isAdmin(userId)) return;
 
-  // 4. /admin — меню
+  // 5. /admin — меню
   if (/^\/admin\b/.test(text)) {
     await telegram.sendMessage(
       chatId,
       "🔧 <b>Админ-панель 1337</b>\n\n" +
         "Команды:\n" +
-        "<code>/setwelcome текст</code> — приветствие в /start\n" +
+        "<code>/setwelcome текст</code> — текст приветствия в /start. Можно использовать жирный/курсив/эмодзи (в т.ч. премиум) — просто наберите их в самом сообщении с командой.\n" +
+        "Отправьте <b>фото с подписью</b> <code>/setwelcome текст</code> — чтобы приветствие показывалось с картинкой.\n" +
+        "<code>/removewelcomephoto</code> — убрать фото из приветствия (текст останется).\n" +
         "<code>/setprices 990</code> — цена подписки Pro (₽)\n" +
         "<code>/setrequisites текст</code> — реквизиты для оплаты переводом\n",
       {
@@ -156,19 +159,40 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 5. /setwelcome <текст>
+  // 6. /setwelcome <текст> — только текст, без фото (плюс сбрасывает ранее прикреплённое фото,
+  //    если оно было — команда описывает весь welcome-контент целиком).
   if (/^\/setwelcome\b/.test(text)) {
-    const value = text.replace(/^\/setwelcome\b/, "").trim();
-    if (!value) {
-      await telegram.sendMessage(chatId, "Использование: /setwelcome текст приветствия");
+    const { text: value, entities } = stripCommandWithEntities(text, msg.entities as TelegramMessageEntity[] | undefined);
+
+    if (!value.trim()) {
+      await telegram.sendMessage(
+        chatId,
+        "Использование: <code>/setwelcome текст приветствия</code>\n" +
+          "Форматирование и премиум-эмодзи можно вставлять прямо в это сообщение.\n" +
+          "Чтобы добавить картинку — отправьте фото с такой же подписью вместо обычного сообщения."
+      );
       return;
     }
-    await supabase.from("settings").update({ welcome_message: value }).eq("id", 1);
-    await telegram.sendMessage(chatId, "✅ Приветствие обновлено.");
+
+    const html = telegramEntitiesToHtml(value, entities);
+
+    await supabase
+      .from("settings")
+      .update({ welcome_message: html, welcome_photo_file_id: null })
+      .eq("id", 1);
+
+    await telegram.sendMessage(chatId, "✅ Приветствие обновлено (текст, без фото).");
     return;
   }
 
-  // 6. /setprices <pro>
+  // 7. /removewelcomephoto — убрать фото, оставить текст как есть
+  if (/^\/removewelcomephoto\b/.test(text)) {
+    await supabase.from("settings").update({ welcome_photo_file_id: null }).eq("id", 1);
+    await telegram.sendMessage(chatId, "✅ Фото приветствия убрано.");
+    return;
+  }
+
+  // 8. /setprices <pro>
   if (/^\/setprices\b/.test(text)) {
     const value = Number(text.replace(/^\/setprices\b/, "").trim());
     if (Number.isNaN(value)) {
@@ -180,7 +204,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 7. /setrequisites <текст>
+  // 9. /setrequisites <текст>
   if (/^\/setrequisites\b/.test(text)) {
     const value = text.replace(/^\/setrequisites\b/, "").trim();
     if (!value) {
@@ -194,6 +218,68 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     await telegram.sendMessage(chatId, "✅ Реквизиты обновлены.");
     return;
   }
+}
+
+// Задаёт фото + текст приветствия из сообщения "фото с подписью /setwelcome ...".
+async function handleSetWelcomePhoto(msg: any, supabase: AdminClient) {
+  const chatId = msg.chat.id;
+  const caption: string = msg.caption || "";
+
+  const { text: value, entities } = stripCommandWithEntities(
+    caption,
+    msg.caption_entities as TelegramMessageEntity[] | undefined
+  );
+
+  if (!value.trim()) {
+    await telegram.sendMessage(
+      chatId,
+      "Подпись к фото должна содержать текст приветствия после команды.\n" +
+        "Пример подписи: <code>/setwelcome Добро пожаловать в 1337! 🎉</code>"
+    );
+    return;
+  }
+
+  // Берём фото в максимальном доступном разрешении — Telegram присылает
+  // массив вариантов размера, последний обычно самый крупный.
+  const fileId = msg.photo[msg.photo.length - 1].file_id;
+  const html = telegramEntitiesToHtml(value, entities);
+
+  await supabase
+    .from("settings")
+    .update({ welcome_message: html, welcome_photo_file_id: fileId })
+    .eq("id", 1);
+
+  await telegram.sendMessage(chatId, "✅ Приветствие обновлено (текст + фото).");
+}
+
+// Отправляет приветственное сообщение пользователю на /start — с фото, если оно задано,
+// иначе обычным текстовым сообщением.
+async function sendWelcome(chatId: number | string, supabase: AdminClient) {
+  const { data: settings } = await supabase
+    .from("settings")
+    .select("welcome_message, welcome_photo_file_id")
+    .single();
+
+  const welcomeText =
+    settings?.welcome_message ||
+    `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`;
+
+  const keyboard = {
+    inline_keyboard: [[{ text: "🚀 Открыть 1337", web_app: { url: process.env.NEXT_PUBLIC_SITE_URL } }]],
+  };
+
+  if (settings?.welcome_photo_file_id) {
+    // У caption в sendPhoto лимит 1024 символа (у обычного text в sendMessage — 4096).
+    // Если текст длиннее, Telegram отклонит запрос — тогда лучше укоротить welcome_message
+    // или убрать фото через /removewelcomephoto.
+    await telegram.sendPhoto(chatId, settings.welcome_photo_file_id, {
+      caption: welcomeText,
+      reply_markup: keyboard,
+    });
+    return;
+  }
+
+  await telegram.sendMessage(chatId, welcomeText, { reply_markup: keyboard });
 }
 
 async function handleCallback(cq: any, supabase: AdminClient) {
