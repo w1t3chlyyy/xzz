@@ -132,9 +132,11 @@ export default function HomePage() {
           <span>Шаг {step} из {selectedRole === "executor" ? 2 : 1}</span>
         </div>
 
-        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-          <span>1337</span>
-        </h1>
+        <img
+  src="/logo.png"
+  alt="1337"
+  className="h-10 mx-auto object-contain"
+/>
         {tgUser ? (
           <p className="text-violet-700 font-bold text-xs mt-1">
             Привет, {tgUser.displayName}! {tgUser.displayUsername && <span className="text-slate-400 font-medium">({tgUser.displayUsername})</span>}
