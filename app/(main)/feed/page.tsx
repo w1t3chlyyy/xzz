@@ -10,17 +10,14 @@ import {
   Loader2,
   Sparkles,
   X,
-  Bot,
-  SlidersHorizontal,
   ArrowRight,
   Briefcase,
-  UserCheck,
   Users,
   Plus,
   FileText,
   Clock,
-  CheckCircle2,
-  MessageSquare
+  MessageSquare,
+  SearchX,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -52,116 +49,6 @@ interface Executor {
     min_project_budget?: number;
   };
 }
-
-const DEFAULT_ORDERS: Order[] = [
-  {
-    id: "demo-1",
-    title: "Telegram Mini App рулетка на звезды",
-    description: "ищу разработчика который сделает tg бота, mini-app рулетка на звезды, бюджет маленький, выслушаю вашу цену, тз в лс",
-    category: "programming",
-    budget_min: null,
-    budget_max: null,
-    created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    client: {
-      first_name: "Иван",
-      username: "yebanny_tg",
-    },
-  },
-  {
-    id: "demo-2",
-    title: "Дизайн Telegram Mini App для криптобиржи",
-    description: "Требуется отрисовать 4-5 ключевых экранов в Figma в светлой и фиолетовой гамме. Готовый UI кит и компоненты приветствуются.",
-    category: "design",
-    budget_min: 25000,
-    budget_max: 40000,
-    created_at: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-    client: {
-      first_name: "Артур",
-      username: "artur_design",
-    },
-  },
-  {
-    id: "demo-3",
-    title: "Интеграция CryptoBot и автовыплаты в бота",
-    description: "Нужен Node.js / Python разработчик для подключения Crypto Pay API и обработки webhook уведомлений о пополнении баланса.",
-    category: "programming",
-    budget_min: 18000,
-    budget_max: null,
-    created_at: new Date(Date.now() - 1000 * 60 * 360).toISOString(),
-    client: {
-      first_name: "Михаил",
-      username: "mikhail_dev",
-    },
-  },
-  {
-    id: "demo-4",
-    title: "Настройка таргета в Telegram Ads",
-    description: "Запуск рекламы на каналы по теме фриланса и AI-сервисов. Бюджет на тесты выделен, оплата за результат (CPA/CPL).",
-    category: "marketing",
-    budget_min: 30000,
-    budget_max: 60000,
-    created_at: new Date(Date.now() - 1000 * 60 * 720).toISOString(),
-    client: {
-      first_name: "Елена",
-      username: "elena_ads",
-    },
-  },
-];
-
-const DEFAULT_EXECUTORS: Executor[] = [
-  {
-    id: "demo-exec-1",
-    first_name: "Алексей Смирнов",
-    username: "alex_1337_dev",
-    avatar_url: null,
-    executor_profiles: {
-      skills: ["Telegram Mini Apps", "Next.js", "TypeScript", "TON"],
-      bio: "Fullstack-разработчик. Создаю быстрые и масштабируемые веб-приложения и Telegram WebApp с AI и платежами.",
-      rating: 5.0,
-      completed_orders: 24,
-      hourly_rate: 2200,
-    },
-  },
-  {
-    id: "demo-exec-2",
-    first_name: "Виктория К.",
-    username: "vika_ui_ux",
-    avatar_url: null,
-    executor_profiles: {
-      skills: ["UI/UX Дизайн", "Figma", "Айдентика", "Design Systems"],
-      bio: "Продуктовый дизайнер. Фокус на мобильных интерфейсах и Telegram Mini Apps с безупречной типографикой.",
-      rating: 4.9,
-      completed_orders: 31,
-      hourly_rate: 1800,
-    },
-  },
-  {
-    id: "demo-exec-3",
-    first_name: "Дмитрий Орлов",
-    username: "dmitry_bots",
-    avatar_url: null,
-    executor_profiles: {
-      skills: ["Python", "aiogram 3", "PostgreSQL", "Gemini AI"],
-      bio: "Разработка высоконагруженных ботов, парсеров и AI-ассистентов с автоматизацией бизнес-процессов.",
-      rating: 5.0,
-      completed_orders: 18,
-      hourly_rate: 2000,
-    },
-  },
-  {
-    id: "demo-exec-4",
-    first_name: "Мария Т.",
-    username: "maria_ton_dev",
-    avatar_url: null,
-    executor_profiles: {
-      skills: ["TON Connect", "Smart Contracts", "Web3", "React"],
-      bio: "Web3 интеграции, подключение кошельков Tonkeeper, смарт-контракты Tact/FunC и мини-игры.",
-      rating: 4.9,
-      completed_orders: 14,
-      hourly_rate: 2500,
-    },
-  },
-];
 
 export default function FeedPage() {
   const [activeCategory, setActiveCategory] = useState("all");
@@ -214,54 +101,35 @@ export default function FeedPage() {
           .eq("role", "executor");
 
         const { data, error } = await query;
-        if (!error && data && data.length > 0) {
-          const executors: Executor[] = data.map((item: any) => {
-            const profile = Array.isArray(item.executor_profiles)
-              ? item.executor_profiles[0]
-              : item.executor_profiles;
+        const executors: Executor[] = !error && data
+          ? data.map((item: any) => {
+              const profile = Array.isArray(item.executor_profiles)
+                ? item.executor_profiles[0]
+                : item.executor_profiles;
 
-            return {
-              id: item.id,
-              first_name: item.first_name || "",
-              username: item.username || "",
-              avatar_url: item.avatar_url || null,
-              executor_profiles: profile || {
-                skills: ["Разработка", "Telegram Mini Apps"],
-                bio: "",
-                rating: 5.0,
-                completed_orders: 0,
-              },
-            };
-          });
+              return {
+                id: item.id,
+                first_name: item.first_name || "",
+                username: item.username || "",
+                avatar_url: item.avatar_url || null,
+                executor_profiles: profile || {
+                  skills: [],
+                  bio: "",
+                  rating: 5.0,
+                  completed_orders: 0,
+                },
+              };
+            })
+          : [];
 
-          // Filter by category if needed
-          let filtered = executors;
-          if (activeCategory !== "all") {
-            filtered = executors.filter((e) =>
-              e.executor_profiles.skills.some((s) =>
-                s.toLowerCase().includes(activeCategory.toLowerCase())
-              )
-            );
-          }
-          setItems(filtered.length > 0 ? filtered : DEFAULT_EXECUTORS);
-        } else {
-          let filtered = DEFAULT_EXECUTORS;
-          if (activeCategory !== "all") {
-            const catMap: Record<string, string> = {
-              programming: "Telegram Mini Apps",
-              design: "UI/UX",
-              marketing: "Маркетинг",
-              copywriting: "Копирайтинг",
-            };
-            const match = catMap[activeCategory];
-            if (match) {
-              filtered = DEFAULT_EXECUTORS.filter((e) =>
-                e.executor_profiles.skills.some((s) => s.includes(match))
+        const filtered =
+          activeCategory === "all"
+            ? executors
+            : executors.filter((e) =>
+                e.executor_profiles.skills.some((s) => s.toLowerCase().includes(activeCategory.toLowerCase()))
               );
-            }
-          }
-          setItems(filtered.length > 0 ? filtered : DEFAULT_EXECUTORS);
-        }
+
+        setItems(filtered);
       } else {
         // Feed of Orders
         let query = supabase
@@ -277,32 +145,31 @@ export default function FeedPage() {
         }
 
         const { data, error } = await query.order("created_at", { ascending: false });
-        if (!error && data && data.length > 0) {
-          const orders: Order[] = data.map((item: any) => {
-            const clientData = Array.isArray(item.client) ? item.client[0] : item.client;
-            return {
-              id: item.id,
-              title: item.title,
-              description: item.description,
-              category: item.category,
-              budget_min: item.budget_min,
-              budget_max: item.budget_max,
-              created_at: item.created_at,
-              client: clientData || { first_name: "", username: "" },
-            };
-          });
-          setItems(orders);
-        } else {
-          const combined = [...localCached, ...DEFAULT_ORDERS];
-          const filtered =
-            activeCategory === "all"
-              ? combined
-              : combined.filter((o) => o.category === activeCategory);
-          setItems(filtered);
-        }
+        const remoteOrders: Order[] = !error && data
+          ? data.map((item: any) => {
+              const clientData = Array.isArray(item.client) ? item.client[0] : item.client;
+              return {
+                id: item.id,
+                title: item.title,
+                description: item.description,
+                category: item.category,
+                budget_min: item.budget_min,
+                budget_max: item.budget_max,
+                created_at: item.created_at,
+                client: clientData || { first_name: "", username: "" },
+              };
+            })
+          : [];
+
+        // Локально созданные заказы (ещё не пришли из Supabase) добавляем сверху,
+        // без каких-либо фейковых демо-записей.
+        const combined = [...localCached, ...remoteOrders];
+        const filtered =
+          activeCategory === "all" ? combined : combined.filter((o) => o.category === activeCategory);
+        setItems(filtered);
       }
     } catch {
-      setItems(userRole === "client" && clientTab === "executors" ? DEFAULT_EXECUTORS : DEFAULT_ORDERS);
+      setItems([]);
     } finally {
       setIsLoading(false);
     }
@@ -334,14 +201,13 @@ export default function FeedPage() {
                 <Sparkles className="w-5 h-5 stroke-[2.2]" />
               </div>
               <div className="space-y-0.5">
-                <h3 className="font-extrabold text-[13.5px] text-slate-900 leading-snug flex items-center gap-1.5">
-                  <span>Фриланс биржа 1337</span>
-                  <span className="badge-violet text-[9px] font-bold py-0.2 px-1.5 rounded-md">PRO</span>
+                <h3 className="font-extrabold text-[13.5px] text-slate-900 leading-snug">
+                  Фриланс биржа 1337
                 </h3>
                 <p className="text-slate-600 text-[11.5px] leading-relaxed font-medium">
                   {isClient
-                    ? "Размещайте задачи с AI-генерацией ТЗ и нанимайте проверенных профи."
-                    : "Безлимитные отклики, AI-составитель заявок и мгновенные уведомления в TG."}
+                    ? "Размещайте задачи и нанимайте проверенных специалистов напрямую в Telegram."
+                    : "Неограниченные отклики и прямой контакт с заказчиками в Telegram."}
                 </p>
               </div>
             </div>
@@ -444,7 +310,7 @@ export default function FeedPage() {
                 У вас пока нет активных заказов
               </h3>
               <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed font-medium">
-                Опубликуйте ваше первое задание с помощью AI-помощника, чтобы получать отклики от специалистов.
+                Опубликуйте ваше первое задание, чтобы получать отклики от специалистов.
               </p>
               <Link
                 href="/orders/new"
@@ -500,19 +366,53 @@ export default function FeedPage() {
         </div>
       ) : isClient && clientTab === "executors" ? (
         /* Specialists list */
-        <div className="space-y-3">
-          {items.map((item) => (
-            <ExecutorCard key={item.id} executor={item as Executor} />
-          ))}
-        </div>
+        items.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title="Пока нет специалистов в этой категории"
+            description="Попробуйте выбрать другую категорию или загляните позже — исполнители появляются по мере регистрации."
+          />
+        ) : (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <ExecutorCard key={item.id} executor={item as Executor} />
+            ))}
+          </div>
+        )
+      ) : /* Orders list (for executor or client in 'orders' tab) */
+      items.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Заказов в этой категории пока нет"
+          description="Загляните позже или посмотрите заказы в других категориях."
+        />
       ) : (
-        /* Orders list (for executor or client in 'orders' tab) */
         <div className="space-y-3">
           {items.map((item) => (
             <OrderCard key={item.id} order={item as Order} />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="bg-white rounded-3xl p-8 text-center space-y-3 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+      <div className="w-12 h-12 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center mx-auto">
+        <Icon className="w-6 h-6" />
+      </div>
+      <h3 className="font-extrabold text-sm text-slate-900">{title}</h3>
+      <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed font-medium">{description}</p>
     </div>
   );
 }
