@@ -339,8 +339,7 @@ export default function SubscribePage() {
             <motion.div
               key={plan.id}
               whileTap={{ scale: 0.99 }}
-              onClick={() => setSelectedTier(plan.id)}
-              className={`bg-white rounded-3xl p-5 space-y-4 border transition-all cursor-pointer relative overflow-hidden ${
+              className={`bg-white rounded-3xl p-5 space-y-4 border transition-all relative overflow-hidden ${
                 isSelected
                   ? "border-violet-600 shadow-[0_6px_25px_rgba(124,58,237,0.12)] ring-2 ring-violet-500/30"
                   : "border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:border-purple-200"
