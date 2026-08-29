@@ -16,7 +16,7 @@ function isAdmin(userId: number): boolean {
   return ADMIN_IDS.includes(userId);
 }
 
-const TIER_LABEL: Record<string, string> = { pro: "Pro", ai_pro: "AI Pro" };
+const TIER_LABEL: Record<string, string> = { pro: "Pro" };
 
 export async function GET() {
   return NextResponse.json({ ok: true, message: "Telegram webhook is alive" });
@@ -121,7 +121,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     const { data: settings } = await supabase.from("settings").select("welcome_message").single();
     const welcomeText =
       settings?.welcome_message ||
-      `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей\n⚡️ AI-помощник для откликов`;
+      `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`;
 
     await telegram.sendMessage(chatId, welcomeText, {
       reply_markup: {
@@ -141,7 +141,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
       "🔧 <b>Админ-панель 1337</b>\n\n" +
         "Команды:\n" +
         "<code>/setwelcome текст</code> — приветствие в /start\n" +
-        "<code>/setprices 990 1990</code> — цены Pro / AI Pro (₽)\n" +
+        "<code>/setprices 990</code> — цена подписки Pro (₽)\n" +
         "<code>/setrequisites текст</code> — реквизиты для оплаты переводом\n",
       {
         reply_markup: {
@@ -168,15 +168,15 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 6. /setprices <pro> <ai_pro>
+  // 6. /setprices <pro>
   if (/^\/setprices\b/.test(text)) {
-    const parts = text.replace(/^\/setprices\b/, "").trim().split(/\s+/).map(Number);
-    if (parts.length !== 2 || parts.some((p) => Number.isNaN(p))) {
-      await telegram.sendMessage(chatId, "Использование: /setprices 990 1990");
+    const value = Number(text.replace(/^\/setprices\b/, "").trim());
+    if (Number.isNaN(value)) {
+      await telegram.sendMessage(chatId, "Использование: /setprices 990");
       return;
     }
-    await supabase.from("settings").update({ pro_price: parts[0], ai_pro_price: parts[1] }).eq("id", 1);
-    await telegram.sendMessage(chatId, "✅ Цены обновлены.");
+    await supabase.from("settings").update({ pro_price: value }).eq("id", 1);
+    await telegram.sendMessage(chatId, "✅ Цена обновлена.");
     return;
   }
 
@@ -349,4 +349,3 @@ async function rejectPayment(supabase: AdminClient, paymentId: string, adminId?:
     await telegram.sendMessage(userRow.telegram_id, "❌ Оплата не подтверждена. Если это ошибка — напишите в поддержку.");
   }
 }
-
