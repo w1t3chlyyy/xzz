@@ -7,7 +7,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSubscription } from "@/lib/useSubscription";
 import {
   Crown,
-  Sparkles,
   Zap,
   Check,
   Clock,
@@ -37,7 +36,7 @@ export default function SubscribePage() {
   const router = useRouter();
   const { isTrialActive, isPaid, tier, timeLeft, refresh } = useSubscription();
 
-  const [selectedTier, setSelectedTier] = useState<"pro" | "ai_pro">("pro");
+  const selectedTier = "pro" as const;
   const [billingPeriod, setBillingPeriod] = useState<"month" | "year">("month");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("bank");
   const [promoCode, setPromoCode] = useState("");
@@ -58,7 +57,7 @@ export default function SubscribePage() {
     {
       id: "pro" as const,
       name: "Pro Тариф",
-      badge: "Популярный",
+      badge: "Полный доступ",
       priceMonth: 990,
       priceYear: 790,
       stars: 500,
@@ -71,24 +70,6 @@ export default function SubscribePage() {
         "Значок верифицированного PRO-специалиста",
         "Уведомления о новых заказах по стеку",
         "Без комиссии биржи за сделки",
-      ],
-    },
-    {
-      id: "ai_pro" as const,
-      name: "AI Pro Тариф",
-      badge: "Максимум возможностей",
-      priceMonth: 1990,
-      priceYear: 1590,
-      stars: 1000,
-      icon: Sparkles,
-      color: "from-purple-600 via-indigo-600 to-pink-600",
-      features: [
-        "Всё, что входит в тариф Pro",
-        "AI-генератор персональных откликов и питчей",
-        "AI-оценка сложности, бюджета и стека проектов",
-        "AI-генератор ТЗ и структуры проекта в 1 клик",
-        "Умный автоподбор идеальных исполнителей/заказов",
-        "Персональный Telegram AI-ассистент 24/7",
       ],
     },
   ];
@@ -113,7 +94,7 @@ export default function SubscribePage() {
       }
 
       setPromoMessage({
-        text: `Промокод применён! Тариф ${data.tier === "ai_pro" ? "AI Pro" : "Pro"} активирован 🎉`,
+        text: `Промокод применён! Тариф Pro активирован 🎉`,
         type: "success",
       });
       refresh();
@@ -153,7 +134,7 @@ export default function SubscribePage() {
     }, 4000);
   };
 
-  const handleActivatePlan = async (tierToActivate: "pro" | "ai_pro") => {
+  const handleActivatePlan = async (tierToActivate: "pro") => {
     setIsProcessing(true);
     setPromoMessage(null);
     try {
@@ -221,7 +202,7 @@ export default function SubscribePage() {
               <Crown className="w-6 h-6 text-amber-300 fill-amber-300" />
             </div>
             <h2 className="text-lg font-extrabold text-slate-900">
-              Ваша подписка {tier === "ai_pro" ? "AI Pro" : "Pro"} активна!
+              Ваша подписка Pro активна!
             </h2>
             <p className="text-xs text-slate-500 max-w-xs mx-auto">
               Вам доступны все премиум-инструменты, AI-генерация и неограниченные отклики.
@@ -560,7 +541,7 @@ export default function SubscribePage() {
               <div>
                 <h3 className="text-lg font-extrabold text-slate-900">Подписка успешно активирована!</h3>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Все возможности тарифа {selectedTier === "ai_pro" ? "AI Pro" : "Pro"} теперь доступны. Удачной работы на бирже 1337!
+                  Все возможности тарифа Pro теперь доступны. Удачной работы на бирже 1337!
                 </p>
               </div>
 
