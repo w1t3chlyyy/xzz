@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
@@ -50,13 +50,7 @@ export default function ResponsesPage() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected'>('all');
   const [role, setRole] = useState<string>('client');
 
-  useEffect(() => {
-    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
-    setRole(savedRole);
-    loadResponses();
-  }, []);
-
-  const loadResponses = async () => {
+  const loadResponses = useCallback(async () => {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -64,6 +58,8 @@ export default function ResponsesPage() {
         router.push('/auth/signin');
         return;
       }
+
+      const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
 
       let query = supabase
         .from('responses')
@@ -81,7 +77,7 @@ export default function ResponsesPage() {
         `);
 
       // Если клиент - показывает его отклики
-      if (role === 'client') {
+      if (savedRole === 'client') {
         query = query.eq('client_id', user.id);
       } else {
         // Если исполнитель - показывает его отклики
@@ -97,7 +93,13 @@ export default function ResponsesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [supabase, router]);
+
+  useEffect(() => {
+    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
+    setRole(savedRole);
+    loadResponses();
+  }, [loadResponses]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
