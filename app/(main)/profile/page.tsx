@@ -11,7 +11,6 @@ import { useSubscription } from "@/lib/useSubscription";
 import {
   Crown,
   Zap,
-  Sparkles,
   Check,
   Loader2,
   User,
@@ -173,18 +172,6 @@ export default function ProfilePage() {
       icon: Crown,
       popular: true,
     },
-    {
-      id: "ai_pro",
-      name: "AI Pro Тариф",
-      price: 1990,
-      features: [
-        "Всё из тарифа Pro",
-        "AI-генерация ТЗ и откликов",
-        "AI-оценка сложности и стека проекта",
-        "Персональный ассистент 24/7",
-      ],
-      icon: Sparkles,
-    },
   ];
 
   if (isLoading) {
@@ -241,7 +228,7 @@ export default function ProfilePage() {
         <div className="flex items-center justify-center gap-2 pt-1">
           <span className="badge-violet text-xs font-bold py-1 px-3 rounded-xl">
             {sub.isPaid
-              ? sub.tier === "ai_pro" ? "AI Pro Тариф" : "Pro Тариф"
+              ? "Pro Тариф"
               : sub.isTrialActive
               ? "5 дней бесплатно"
               : "Пробный период истёк"}
@@ -307,11 +294,8 @@ export default function ProfilePage() {
                 <Plus className="w-4 h-4" />
               </div>
               <div className="text-left">
-                <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
-                  <span>Опубликовать заказ</span>
-                  <span className="badge-violet text-[9px] font-bold py-0.2 px-1.5 rounded-md">
-                    AI ТЗ
-                  </span>
+                <div className="text-xs font-extrabold text-slate-900">
+                  Опубликовать заказ
                 </div>
                 <p className="text-[11px] text-slate-500 font-medium">
                   Сформулировать задачу и получить отклики
@@ -350,7 +334,7 @@ export default function ProfilePage() {
       <div className="space-y-3">
         <h3 className="font-extrabold text-sm text-slate-900 px-1 flex items-center gap-2">
           <CreditCard className="w-4 h-4 text-violet-600" />
-          Тарифные планы 1337 и AI
+          Тарифные планы 1337
         </h3>
 
         {plans.map((plan) => {
