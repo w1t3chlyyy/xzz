@@ -1,7 +1,15 @@
 import TelegramBot from "node-telegram-bot-api";
 import { createClient } from "@supabase/supabase-js";
 
+// ВРЕМЕННО для диагностики — удалить после проверки
+console.log(
+  "BOT TOKEN fingerprint:",
+  process.env.TELEGRAM_BOT_TOKEN?.length,
+  process.env.TELEGRAM_BOT_TOKEN?.slice(0, 6)
+);
+
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true });
+// ...остальной код без изменений
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
