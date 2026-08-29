@@ -41,7 +41,6 @@ export function getSubscriptionLabel(tier: string): string {
   const labels: Record<string, string> = {
     free: "Free",
     pro: "Pro",
-    ai_pro: "AI Pro",
   };
   return labels[tier] || tier;
 }
