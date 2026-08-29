@@ -1,58 +1,169 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getTelegramInitData, expandTelegramApp } from "@/lib/telegram/webapp";
-import { Loader2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { createClient } from "@/lib/supabase/client";
+import { ArrowLeft, Plus } from "lucide-react";
+import Link from "next/link";
 
-export default function HomePage() {
+const categories = [
+  { id: "programming", label: "Программирование", emoji: "💻" },
+  { id: "design", label: "Дизайн", emoji: "🎨" },
+  { id: "marketing", label: "Маркетинг", emoji: "📈" },
+  { id: "copywriting", label: "Копирайтинг", emoji: "✍️" },
+];
+
+export default function NewOrderPage() {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [budgetMin, setBudgetMin] = useState("");
+  const [budgetMax, setBudgetMax] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const supabase = createClient();
 
-  useEffect(() => {
-    expandTelegramApp();
-    login();
-  }, []);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !description || !category) return;
 
-  async function login() {
-    const initData = getTelegramInitData();
-
-    if (!initData) {
-      setError("Откройте приложение через Telegram");
-      return;
-    }
+    setIsLoading(true);
 
     try {
-      const response = await fetch("/api/auth/telegram", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData }),
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { error } = await supabase.from("orders").insert({
+        client_id: user.id,
+        title,
+        description,
+        category,
+        budget_min: budgetMin ? parseInt(budgetMin) : null,
+        budget_max: budgetMax ? parseInt(budgetMax) : null,
+        status: "active",
       });
 
-      const data = await response.json();
+      if (error) throw error;
 
-      if (!response.ok) {
-        setError(data.error || "Ошибка авторизации");
-        return;
-      }
-
-      router.push(data.role ? "/feed" : "/onboarding");
-    } catch (e) {
-      console.error(e);
-      setError("Не удалось подключиться к серверу");
+      router.push("/feed");
+      router.refresh();
+    } catch (error) {
+      console.error("Error creating order:", error);
+      alert("Ошибка при создании заказа");
+    } finally {
+      setIsLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-violet-dark flex flex-col items-center justify-center p-6 text-center">
-      {error ? (
-        <p className="text-violet-200">{error}</p>
-      ) : (
-        <>
-          <Loader2 className="w-8 h-8 text-violet-accent animate-spin mb-3" />
-          <p className="text-violet-300">Входим...</p>
-        </>
-      )}
+    <div className="p-4 space-y-6">
+      <div className="flex items-center gap-3">
+        <Link href="/feed">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            className="p-2 rounded-xl bg-violet-surface border border-violet-border text-violet-ink"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </motion.button>
+        </Link>
+        <h1 className="text-2xl font-bold text-violet-ink">Новый заказ</h1>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="block text-sm font-medium text-violet-ink/70 mb-2">
+            Название заказа
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Например: Разработка сайта на Next.js"
+            className="w-full p-3 rounded-xl bg-violet-surface border border-violet-border text-violet-ink placeholder-violet-muted focus:border-violet-primary focus:outline-none transition-colors"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-violet-ink/70 mb-2">
+            Описание
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Опишите задачу подробно..."
+            rows={5}
+            className="w-full p-3 rounded-xl bg-violet-surface border border-violet-border text-violet-ink placeholder-violet-muted focus:border-violet-primary focus:outline-none transition-colors resize-none"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-violet-ink/70 mb-2">
+            Категория
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setCategory(cat.id)}
+                className={`
+                  p-3 rounded-xl border text-sm font-medium transition-all
+                  ${category === cat.id
+                    ? "border-violet-accent bg-violet-primary/10 text-violet-primary"
+                    : "border-violet-border bg-violet-surface text-violet-ink/70 hover:border-violet-primary/50"
+                  }
+                `}
+              >
+                <span className="mr-1">{cat.emoji}</span>
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-violet-ink/70 mb-2">
+            Бюджет (₽)
+          </label>
+          <div className="flex gap-3">
+            <input
+              type="number"
+              value={budgetMin}
+              onChange={(e) => setBudgetMin(e.target.value)}
+              placeholder="От"
+              className="flex-1 p-3 rounded-xl bg-violet-surface border border-violet-border text-violet-ink placeholder-violet-muted focus:border-violet-primary focus:outline-none"
+            />
+            <input
+              type="number"
+              value={budgetMax}
+              onChange={(e) => setBudgetMax(e.target.value)}
+              placeholder="До"
+              className="flex-1 p-3 rounded-xl bg-violet-surface border border-violet-border text-violet-ink placeholder-violet-muted focus:border-violet-primary focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={isLoading || !title || !description || !category}
+          className="w-full btn-primary py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading ? (
+            <span className="flex items-center justify-center gap-2">
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Создаём...
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <Plus className="w-5 h-5" />
+              Создать заказ
+            </span>
+          )}
+        </button>
+      </form>
     </div>
   );
 }
