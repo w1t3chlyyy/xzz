@@ -15,11 +15,14 @@ interface TelegramUser {
 
 function verifyTelegramInitData(initData: string, botToken: string): TelegramUser | null {
   try {
-    // ВАЖНО: НЕ декодировать initData вручную заранее.
-    // URLSearchParams сам корректно декодирует каждое значение.
+    const cleanToken = botToken.trim();
+
     const urlParams = new URLSearchParams(initData);
     const hash = urlParams.get("hash");
-    if (!hash) return null;
+    if (!hash) {
+      console.log("❌ No hash field in initData at all");
+      return null;
+    }
 
     urlParams.delete("hash");
 
@@ -28,22 +31,31 @@ function verifyTelegramInitData(initData: string, botToken: string): TelegramUse
       .map(([key, value]) => `${key}=${value}`)
       .join("\n");
 
-    const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
+    const secretKey = crypto.createHmac("sha256", "WebAppData").update(cleanToken).digest();
     const computedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+
+    // ВРЕМЕННО для отладки — удалить после диагностики
+    console.log("RAW initData:", initData);
+    console.log("dataCheckString:", JSON.stringify(dataCheckString));
+    console.log("botToken length:", cleanToken.length, "first 6 chars:", cleanToken.slice(0, 6));
+    console.log("received hash :", hash);
+    console.log("computed hash :", computedHash);
+    console.log("match:", computedHash === hash);
 
     if (computedHash !== hash) return null;
 
-    // Защита от replay-атак: initData считается валидной ограниченное время
     const authDate = Number(urlParams.get("auth_date"));
-    if (!authDate || Date.now() / 1000 - authDate > 86400) return null;
+    if (!authDate || Date.now() / 1000 - authDate > 86400) {
+      console.log("❌ auth_date expired or missing");
+      return null;
+    }
 
     const userRaw = urlParams.get("user");
     if (!userRaw) return null;
 
-    // Если это не валидный JSON — считаем запрос поддельным и отклоняем,
-    // никаких "исправлений" формата не делаем.
     return JSON.parse(userRaw) as TelegramUser;
-  } catch {
+  } catch (e) {
+    console.log("❌ Verification threw:", e);
     return null;
   }
 }
