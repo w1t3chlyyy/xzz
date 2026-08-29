@@ -46,6 +46,23 @@ function verifyTelegramInitData(initData: string, botToken: string): TelegramUse
   }
 }
 
+// Supabase может вернуть разные формулировки для "пользователь уже существует"
+// в зависимости от версии GoTrue: "User already registered",
+// "A user with this email address has already been registered", и т.п.
+// Раньше здесь была точная проверка на подстроку "already registered",
+// которая НЕ совпадала с реальным текстом ("...already been registered"),
+// из-за чего валидная попытка повторного входа падала в throw и отдавала 500.
+function isUserAlreadyRegisteredError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { message?: string; code?: string; status?: number };
+
+  if (err.code === "email_exists" || err.code === "user_already_exists") return true;
+  if (err.status === 422) return true;
+
+  const message = (err.message || "").toLowerCase();
+  return /already\s+(been\s+)?registered|already\s+exists/.test(message);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { initData } = await request.json();
@@ -75,7 +92,7 @@ export async function POST(request: NextRequest) {
       email_confirm: true,
     });
 
-    if (createError && !createError.message.includes("already registered")) {
+    if (createError && !isUserAlreadyRegisteredError(createError)) {
       throw createError;
     }
 
