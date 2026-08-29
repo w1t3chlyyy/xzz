@@ -12,11 +12,8 @@ import {
   Palette,
   TrendingUp,
   PenTool,
-  Sparkles,
-  Loader2,
   Check,
   Briefcase,
-  Bot,
   Layers,
   Clock,
   DollarSign,
@@ -75,8 +72,6 @@ export default function NewOrderPage() {
   const [budgetMax, setBudgetMax] = useState("");
   const [deadlineDays, setDeadlineDays] = useState("7");
   const [isLoading, setIsLoading] = useState(false);
-  const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const [aiNotice, setAiNotice] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
 
@@ -94,51 +89,6 @@ export default function NewOrderPage() {
     setCategory(tmpl.category);
     setBudgetMin(tmpl.budgetMin.toString());
     setBudgetMax(tmpl.budgetMax.toString());
-  };
-
-  const handleAiGenerateTz = async () => {
-    if (!description.trim() && !title.trim()) {
-      setAiNotice("Напишите хотя бы пару слов о задаче или выберите быстрый шаблон!");
-      setTimeout(() => setAiNotice(null), 3000);
-      return;
-    }
-
-    setIsAiGenerating(true);
-    setAiNotice(null);
-
-    try {
-      const response = await fetch("/api/ai/draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskDescription: `Заголовок: ${title}. Черновик задачи: ${description}. Категория: ${category}`,
-          customInstructions: "Ты — AI-архитектор биржи 1337. Преврати черновик задачи заказчика в идеальное, структурированное Техническое Задание (ТЗ) для фрилансеров. Включи разделы: 🎯 Цель проекта, 🛠 Основные функции и требования, 💻 Рекомендуемый стек, ⏱ Желаемые сроки сдачи и критерии приемки. Пиши профессионально, лаконично и четко.",
-        }),
-      });
-
-      const data = await response.json();
-      if (data.draft) {
-        setDescription(data.draft);
-        if (!title) {
-          setTitle(`Разработка ${category === "design" ? "дизайна" : "проекта"}: ${description.slice(0, 40)}`);
-        }
-        setAiNotice("ТЗ успешно составлено и структурировано с помощью AI!");
-      } else {
-        // Fallback enhancement
-        setDescription(
-          `🎯 Цель проекта:\n${description || "Разработка решения под ключ для Telegram экосистемы"}\n\n🛠 Ключевые требования:\n1. Адаптивный и быстрый интерфейс (Mini App / Bot)\n2. Чистый и задокументированный код\n3. Подключение необходимых API и обработка ошибок\n\n⏱ Срок реализации: 5-7 рабочих дней.`
-        );
-        setAiNotice("ТЗ оформлено!");
-      }
-    } catch {
-      setDescription(
-        `🎯 Цель проекта:\n${description || "Разработка решения под ключ для Telegram экосистемы"}\n\n🛠 Ключевые требования:\n1. Адаптивный и быстрый интерфейс (Mini App / Bot)\n2. Чистый и задокументированный код\n3. Подключение необходимых API и обработка ошибок\n\n⏱ Срок реализации: 5-7 рабочих дней.`
-      );
-      setAiNotice("ТЗ оформлено!");
-    } finally {
-      setIsAiGenerating(false);
-      setTimeout(() => setAiNotice(null), 4000);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -318,37 +268,14 @@ export default function NewOrderPage() {
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold text-slate-900">
-                Подробное ТЗ и требования *
-              </label>
-
-              <button
-                type="button"
-                onClick={handleAiGenerateTz}
-                disabled={isAiGenerating}
-                className="text-[11px] font-extrabold text-violet-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-xl flex items-center gap-1 hover:bg-purple-100 transition-colors disabled:opacity-50"
-              >
-                {isAiGenerating ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Bot className="w-3.5 h-3.5" />
-                )}
-                <span>AI Составить ТЗ</span>
-              </button>
-            </div>
-
-            {aiNotice && (
-              <div className="mb-2 p-2.5 rounded-xl bg-purple-100 text-purple-800 text-[11px] font-bold flex items-center gap-1.5 border border-purple-200">
-                <Sparkles className="w-3.5 h-3.5 text-violet-700 shrink-0" />
-                <span>{aiNotice}</span>
-              </div>
-            )}
+            <label className="block text-xs font-bold text-slate-900 mb-1.5">
+              Подробное ТЗ и требования *
+            </label>
 
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Опишите задачу, стек, требования, сроки и ссылки (или напишите краткую мысль и нажмите кнопку AI выше)..."
+              placeholder="Опишите задачу, стек, требования, сроки и ссылки..."
               rows={6}
               className="w-full p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-violet-600 focus:bg-white focus:outline-none text-xs leading-relaxed font-medium transition-all resize-none"
               required
@@ -392,7 +319,7 @@ export default function NewOrderPage() {
         >
           {isLoading ? (
             <span className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
               <span>Публикация...</span>
             </span>
           ) : (
