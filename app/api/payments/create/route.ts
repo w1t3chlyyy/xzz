@@ -7,7 +7,6 @@ import { telegram } from "@/lib/telegram/bot-api";
 
 const PRICES: Record<string, { rub: number; stars: number; usdt: number }> = {
   pro: { rub: 990, stars: 500, usdt: 11 },
-  ai_pro: { rub: 1990, stars: 1000, usdt: 22 },
 };
 
 export async function POST(request: NextRequest) {
