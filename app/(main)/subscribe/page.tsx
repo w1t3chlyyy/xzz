@@ -1,16 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSubscription } from "@/lib/useSubscription";
-import {
-  activateLocalSubscription,
-  resetLocalTrial,
-  expireLocalTrialNow,
-} from "@/lib/subscription";
-import { createClient } from "@/lib/supabase/client";
 import {
   Crown,
   Sparkles,
@@ -25,11 +19,19 @@ import {
   Gift,
   Flame,
   Star,
-  ChevronRight,
-  Info,
-  RefreshCw,
-  Sliders
+  Loader2,
+  Landmark,
+  Copy,
 } from "lucide-react";
+
+type PaymentMethod = "bank" | "stars" | "crypto";
+
+interface PendingPayment {
+  id: string;
+  method: PaymentMethod;
+  requisites?: string;
+  amount?: number;
+}
 
 export default function SubscribePage() {
   const router = useRouter();
@@ -37,13 +39,20 @@ export default function SubscribePage() {
 
   const [selectedTier, setSelectedTier] = useState<"pro" | "ai_pro">("pro");
   const [billingPeriod, setBillingPeriod] = useState<"month" | "year">("month");
-  const [paymentMethod, setPaymentMethod] = useState<"sbp" | "stars" | "crypto">("sbp");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("bank");
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const supabase = createClient();
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const plans = [
     {
@@ -51,7 +60,7 @@ export default function SubscribePage() {
       name: "Pro Тариф",
       badge: "Популярный",
       priceMonth: 990,
-      priceYear: 790, // per month when paid yearly
+      priceYear: 790,
       stars: 500,
       icon: Crown,
       color: "from-violet-600 to-indigo-600",
@@ -84,31 +93,70 @@ export default function SubscribePage() {
     },
   ];
 
-  const handleApplyPromo = () => {
-    const code = promoCode.trim().toUpperCase();
+  const handleApplyPromo = async () => {
+    const code = promoCode.trim();
     if (!code) return;
+    setIsApplyingPromo(true);
+    setPromoMessage(null);
 
-    if (code === "1337VIP" || code === "PROMO30") {
-      activateLocalSubscription("pro", 30);
-      setPromoMessage({ text: "Промокод применён! Активирован Pro на 30 дней 🎉", type: "success" });
+    try {
+      const res = await fetch("/api/payments/promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setPromoMessage({ text: data.error || "Не удалось применить промокод", type: "error" });
+        return;
+      }
+
+      setPromoMessage({
+        text: `Промокод применён! Тариф ${data.tier === "ai_pro" ? "AI Pro" : "Pro"} активирован 🎉`,
+        type: "success",
+      });
       refresh();
-    } else if (code === "AIPRO" || code === "AI1337") {
-      activateLocalSubscription("ai_pro", 30);
-      setPromoMessage({ text: "Промокод применён! Активирован AI Pro на 30 дней 🚀", type: "success" });
-      refresh();
-    } else if (code === "BONUS5" || code === "TEST5") {
-      resetLocalTrial(5);
-      setPromoMessage({ text: "Пробный период продлён на 5 дней! ✨", type: "success" });
-      refresh();
-    } else {
-      setPromoMessage({ text: "Неверный промокод или срок его действия истёк", type: "error" });
+    } catch {
+      setPromoMessage({ text: "Ошибка сети, попробуйте ещё раз", type: "error" });
+    } finally {
+      setIsApplyingPromo(false);
     }
+  };
+
+  // Оплата подтверждается асинхронно (ботом / вебхуком CryptoBot), поэтому
+  // после создания платежа мы опрашиваем его статус, а не активируем тариф сразу.
+  const pollPaymentStatus = (paymentId: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/payments/status?id=${paymentId}`);
+        if (!res.ok) return;
+        const { payment } = await res.json();
+
+        if (payment.status === "paid") {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setPendingPayment(null);
+          setShowSuccessModal(true);
+          refresh();
+        } else if (payment.status === "rejected") {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setPendingPayment(null);
+          setPromoMessage({ text: "Оплата отклонена администратором.", type: "error" });
+        }
+      } catch {
+        // сеть моргнула — просто попробуем на следующем тике
+      }
+    }, 4000);
   };
 
   const handleActivatePlan = async (tierToActivate: "pro" | "ai_pro") => {
     setIsProcessing(true);
+    setPromoMessage(null);
     try {
-      // 1. Call payments endpoint
       const res = await fetch("/api/payments/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -120,36 +168,33 @@ export default function SubscribePage() {
       });
 
       const data = await res.json();
-      if (data.payUrl) {
+      if (!res.ok) {
+        setPromoMessage({ text: data.error || "Не удалось создать платёж", type: "error" });
+        return;
+      }
+
+      if (paymentMethod === "crypto" && data.payUrl) {
         window.open(data.payUrl, "_blank");
       }
 
-      // 2. Persist in local storage & supabase
-      const days = billingPeriod === "year" ? 365 : 30;
-      activateLocalSubscription(tierToActivate, days);
-
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const expiresDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-          await supabase
-            .from("users")
-            .update({
-              subscription_tier: tierToActivate,
-              subscription_expires_at: expiresDate,
-            })
-            .eq("id", user.id);
-        }
-      } catch (err) {
-        console.warn("Supabase sub update:", err);
-      }
-
-      setShowSuccessModal(true);
-      refresh();
+      setPendingPayment({
+        id: data.paymentId,
+        method: paymentMethod,
+        requisites: data.requisites,
+        amount: data.amount,
+      });
+      pollPaymentStatus(data.paymentId);
     } catch (error) {
       console.error("Subscription activation failed:", error);
+      setPromoMessage({ text: "Ошибка сети, попробуйте ещё раз", type: "error" });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const copyRequisites = () => {
+    if (pendingPayment?.requisites) {
+      navigator.clipboard.writeText(pendingPayment.requisites).catch(() => {});
     }
   };
 
@@ -163,9 +208,7 @@ export default function SubscribePage() {
         >
           <span>← Назад в профиль</span>
         </Link>
-        <span className="badge-violet text-xs font-bold py-1 px-3 rounded-xl">
-          Биржа 1337
-        </span>
+        <span className="badge-violet text-xs font-bold py-1 px-3 rounded-xl">Биржа 1337</span>
       </div>
 
       {/* Trial Countdown Card / Paywall Alert */}
@@ -198,18 +241,13 @@ export default function SubscribePage() {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <h3 className="font-extrabold text-sm text-slate-900">Бесплатный период</h3>
-                    <span className="badge-violet text-[9px] font-bold py-0.2 px-1.5 rounded-md">
-                      5 ДНЕЙ
-                    </span>
+                    <span className="badge-violet text-[9px] font-bold py-0.2 px-1.5 rounded-md">5 ДНЕЙ</span>
                   </div>
-                  <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Полный доступ ко всем заказам и откликам
-                  </p>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">Полный доступ ко всем заказам и откликам</p>
                 </div>
               </div>
             </div>
 
-            {/* Countdown Display */}
             <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/80 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
                 <Clock className="w-4 h-4 text-violet-600" />
@@ -230,9 +268,7 @@ export default function SubscribePage() {
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-lg font-extrabold text-slate-900">
-                Пробный 5-дневный период завершён
-              </h2>
+              <h2 className="text-lg font-extrabold text-slate-900">Пробный 5-дневный период завершён</h2>
               <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
                 Чтобы продолжать отвечать на заказы, публиковать проекты и общаться с заказчиками, продлите подписку.
               </p>
@@ -241,14 +277,60 @@ export default function SubscribePage() {
         )}
       </div>
 
+      {/* Pending payment banner */}
+      <AnimatePresence>
+        {pendingPayment && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-amber-50 border border-amber-200 rounded-3xl p-4 space-y-3"
+          >
+            <div className="flex items-center gap-2 text-amber-800 font-extrabold text-xs">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Ожидаем подтверждения оплаты...</span>
+            </div>
+
+            {pendingPayment.method === "bank" && (
+              <div className="space-y-2">
+                <div className="bg-white rounded-2xl p-3 border border-amber-200/80 text-xs text-slate-700 font-mono whitespace-pre-wrap leading-relaxed">
+                  {pendingPayment.requisites}
+                </div>
+                <button
+                  onClick={copyRequisites}
+                  className="text-[11px] font-bold text-amber-800 flex items-center gap-1"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Скопировать реквизиты</span>
+                </button>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Переведите {pendingPayment.amount?.toLocaleString("ru-RU")} ₽ и отправьте скриншот чека{" "}
+                  <b>в чат с ботом 1337 в Telegram</b>. Администратор подтвердит оплату вручную, это может занять некоторое время.
+                </p>
+              </div>
+            )}
+
+            {pendingPayment.method === "stars" && (
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Счёт на оплату Stars отправлен в чат с ботом — откройте Telegram, чтобы завершить оплату.
+              </p>
+            )}
+
+            {pendingPayment.method === "crypto" && (
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Окно оплаты CryptoBot открыто в новой вкладке. После оплаты подписка активируется автоматически.
+              </p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Billing Switcher (Month / Year) */}
       <div className="bg-slate-200/70 p-1 rounded-2xl flex items-center max-w-xs mx-auto">
         <button
           onClick={() => setBillingPeriod("month")}
           className={`flex-1 text-xs font-bold py-2 rounded-xl transition-all cursor-pointer ${
-            billingPeriod === "month"
-              ? "bg-white text-slate-900 shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
+            billingPeriod === "month" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
           }`}
         >
           Ежемесячно
@@ -256,15 +338,11 @@ export default function SubscribePage() {
         <button
           onClick={() => setBillingPeriod("year")}
           className={`flex-1 text-xs font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer ${
-            billingPeriod === "year"
-              ? "bg-white text-slate-900 shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
+            billingPeriod === "year" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <span>На год</span>
-          <span className="bg-emerald-100 text-emerald-700 text-[9px] font-bold px-1.5 py-0.2 rounded-md">
-            -20%
-          </span>
+          <span className="bg-emerald-100 text-emerald-700 text-[9px] font-bold px-1.5 py-0.2 rounded-md">-20%</span>
         </button>
       </div>
 
@@ -301,24 +379,17 @@ export default function SubscribePage() {
                   <div className="flex items-center gap-2">
                     <h3 className="font-extrabold text-base text-slate-900">{plan.name}</h3>
                     {plan.badge && (
-                      <span className="badge-violet text-[9px] font-bold py-0.2 px-1.5 rounded-md">
-                        {plan.badge}
-                      </span>
+                      <span className="badge-violet text-[9px] font-bold py-0.2 px-1.5 rounded-md">{plan.badge}</span>
                     )}
                   </div>
                   <div className="flex items-baseline gap-1.5 mt-0.5">
-                    <span className="text-xl font-extrabold text-violet-700">
-                      {price.toLocaleString("ru-RU")} ₽
-                    </span>
+                    <span className="text-xl font-extrabold text-violet-700">{price.toLocaleString("ru-RU")} ₽</span>
                     <span className="text-xs text-slate-400 font-medium">/ месяц</span>
-                    <span className="text-xs text-slate-400 font-medium">
-                      (⭐ {plan.stars})
-                    </span>
+                    <span className="text-xs text-slate-400 font-medium">(⭐ {plan.stars})</span>
                   </div>
                 </div>
               </div>
 
-              {/* Features List */}
               <ul className="space-y-2 pt-2 border-t border-slate-100">
                 {plan.features.map((feat, idx) => (
                   <li key={idx} className="flex items-start gap-2.5 text-xs text-slate-700 font-medium">
@@ -330,22 +401,22 @@ export default function SubscribePage() {
                 ))}
               </ul>
 
-              {/* Action Button */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleActivatePlan(plan.id);
                 }}
-                disabled={isProcessing}
-                className={`w-full py-3 px-4 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all ${
-                  isSelected
-                    ? "btn-primary shadow-md shadow-violet-500/20"
-                    : "bg-slate-100 hover:bg-slate-200 text-slate-800"
+                disabled={isProcessing || !!pendingPayment}
+                className={`w-full py-3 px-4 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${
+                  isSelected ? "btn-primary shadow-md shadow-violet-500/20" : "bg-slate-100 hover:bg-slate-200 text-slate-800"
                 }`}
               >
                 {isProcessing && selectedTier === plan.id ? (
-                  <span>Обработка платежа...</span>
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Создаём счёт...</span>
+                  </span>
                 ) : isCurrentActive ? (
                   <>
                     <Check className="w-4 h-4 text-white" />
@@ -373,15 +444,18 @@ export default function SubscribePage() {
         <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
-            onClick={() => setPaymentMethod("sbp")}
+            onClick={() => setPaymentMethod("bank")}
             className={`p-2.5 rounded-2xl border text-center transition-all cursor-pointer ${
-              paymentMethod === "sbp"
+              paymentMethod === "bank"
                 ? "border-violet-600 bg-purple-50/70 text-violet-700 font-extrabold shadow-2xs"
                 : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 font-medium"
             }`}
           >
-            <div className="text-xs font-extrabold">СБП / Карта</div>
-            <div className="text-[10px] text-slate-400">Мгновенно</div>
+            <div className="text-xs font-extrabold flex items-center justify-center gap-1">
+              <Landmark className="w-3.5 h-3.5" />
+              <span>По реквизитам</span>
+            </div>
+            <div className="text-[10px] text-slate-400">Проверка вручную</div>
           </button>
 
           <button
@@ -410,7 +484,7 @@ export default function SubscribePage() {
             }`}
           >
             <div className="text-xs font-extrabold">CryptoBot</div>
-            <div className="text-[10px] text-slate-400">USDT / TON</div>
+            <div className="text-[10px] text-slate-400">USDT</div>
           </button>
         </div>
       </div>
@@ -428,14 +502,15 @@ export default function SubscribePage() {
             value={promoCode}
             onChange={(e) => setPromoCode(e.target.value)}
             placeholder="Например: 1337VIP"
-            className="flex-1 input-clean text-xs font-mono uppercase px-3 py-2.5 rounded-2xl"
+            className="flex-1 input-violet text-xs font-mono uppercase px-3 py-2.5 rounded-2xl"
           />
           <button
             type="button"
             onClick={handleApplyPromo}
-            className="btn-secondary text-xs px-4 py-2.5 rounded-2xl font-extrabold cursor-pointer"
+            disabled={isApplyingPromo}
+            className="btn-outline text-xs px-4 py-2.5 rounded-2xl font-extrabold cursor-pointer disabled:opacity-50"
           >
-            Применить
+            {isApplyingPromo ? <Loader2 className="w-4 h-4 animate-spin" /> : "Применить"}
           </button>
         </div>
 
@@ -453,43 +528,19 @@ export default function SubscribePage() {
             <span>{promoMessage.text}</span>
           </p>
         )}
+        <p className="text-[10px] text-slate-400 leading-relaxed">
+          Промокоды проверяются и применяются на сервере — управлять ими можно только напрямую через таблицу
+          <code className="mx-1 bg-slate-100 px-1 rounded">promo_codes</code> в Supabase.
+        </p>
       </div>
 
-      {/* Tester & Simulation Controls (for verifying 5-day trial) */}
-      <div className="bg-slate-100/80 rounded-2xl p-3 border border-slate-200/80 space-y-2">
-        <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 px-1">
-          <span className="flex items-center gap-1">
-            <Sliders className="w-3.5 h-3.5 text-slate-500" />
-            Тестирование таймера подписки
-          </span>
-          <span className="text-[10px] text-slate-400">Для проверки</span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              resetLocalTrial(5);
-              refresh();
-            }}
-            className="text-[10px] font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1"
-          >
-            <RefreshCw className="w-3 h-3 text-violet-600" />
-            <span>Сбросить на 5 дней</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              expireLocalTrialNow();
-              refresh();
-            }}
-            className="text-[10px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 py-1.5 px-2 rounded-xl transition-all flex items-center justify-center gap-1"
-          >
-            <AlertTriangle className="w-3 h-3 text-rose-600" />
-            <span>Сделать истёкшим</span>
-          </button>
-        </div>
+      {/* Security note replacing the old client-side test panel */}
+      <div className="bg-slate-100/80 rounded-2xl p-3 border border-slate-200/80 flex items-start gap-2">
+        <ShieldCheck className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+        <p className="text-[11px] text-slate-600 leading-relaxed">
+          Пробный период и статус подписки теперь считаются на сервере (таблица <code>users</code>), а не в браузере —
+          их больше нельзя изменить через localStorage.
+        </p>
       </div>
 
       {/* Success Modal */}
@@ -507,9 +558,7 @@ export default function SubscribePage() {
               </div>
 
               <div>
-                <h3 className="text-lg font-extrabold text-slate-900">
-                  Подписка успешно активирована!
-                </h3>
+                <h3 className="text-lg font-extrabold text-slate-900">Подписка успешно активирована!</h3>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                   Все возможности тарифа {selectedTier === "ai_pro" ? "AI Pro" : "Pro"} теперь доступны. Удачной работы на бирже 1337!
                 </p>
