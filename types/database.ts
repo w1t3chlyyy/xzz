@@ -10,10 +10,11 @@ export interface Database {
           last_name: string | null;
           avatar_url: string | null;
           role: "client" | "executor" | null;
-          subscription_tier: "free" | "pro" | "ai_pro";
+          subscription_tier: "free" | "pro";
           subscription_expires_at: string | null;
           responses_today: number;
           responses_reset_at: string | null;
+          trial_started_at: string;
           created_at: string;
           updated_at: string;
         };
@@ -25,7 +26,7 @@ export interface Database {
           last_name?: string | null;
           avatar_url?: string | null;
           role?: "client" | "executor" | null;
-          subscription_tier?: "free" | "pro" | "ai_pro";
+          subscription_tier?: "free" | "pro";
           subscription_expires_at?: string | null;
           responses_today?: number;
           responses_reset_at?: string | null;
@@ -40,7 +41,7 @@ export interface Database {
           last_name?: string | null;
           avatar_url?: string | null;
           role?: "client" | "executor" | null;
-          subscription_tier?: "free" | "pro" | "ai_pro";
+          subscription_tier?: "free" | "pro";
           subscription_expires_at?: string | null;
           responses_today?: number;
           responses_reset_at?: string | null;
@@ -68,7 +69,6 @@ export interface Database {
           order_id: string;
           executor_id: string;
           message: string;
-          ai_draft: string | null;
           status: string;
           created_at: string;
         };
@@ -77,11 +77,17 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
+          telegram_id: number | null;
           invoice_id: number;
           amount: number;
           currency: string;
           tier: string;
+          method: "crypto" | "stars" | "bank";
+          duration_days: number;
           status: string;
+          proof_file_id: string | null;
+          reviewed_by: number | null;
+          reviewed_at: string | null;
           paid_at: string | null;
           created_at: string;
         };
@@ -91,7 +97,6 @@ export interface Database {
           id: number;
           welcome_message: string;
           pro_price: number;
-          ai_pro_price: number;
           admin_ids: number[];
           updated_at: string;
         };
@@ -104,6 +109,24 @@ export interface Database {
           portfolio_url: string | null;
           rating: number;
           completed_orders: number;
+        };
+      };
+      payment_requisites: {
+        Row: {
+          id: number;
+          details: string;
+          updated_at: string;
+        };
+      };
+      promo_codes: {
+        Row: {
+          code: string;
+          tier: string;
+          duration_days: number;
+          max_uses: number | null;
+          used_count: number;
+          active: boolean;
+          created_at: string;
         };
       };
     };
