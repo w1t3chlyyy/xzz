@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid Telegram signature" }, { status: 401 });
     }
 
-    const email = `tg${tgUser.id}@fiolet.app`;
+    const email = `tg${tgUser.id}@1337.app`;
     const password = crypto.createHmac("sha256", botToken).update(String(tgUser.id)).digest("hex");
 
     const admin = createAdminClient();
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
       throw createError;
     }
 
-    const supabase = createClient();
+    const supabase = await createClient();
     const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,

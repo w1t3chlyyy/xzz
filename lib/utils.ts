@@ -27,14 +27,14 @@ export function getCategoryLabel(category: string): string {
   return labels[category] || category;
 }
 
-export function getCategoryEmoji(category: string): string {
-  const emojis: Record<string, string> = {
-    programming: "💻",
-    design: "🎨",
-    marketing: "📈",
-    copywriting: "✍️",
+export function getCategorySublabel(category: string): string {
+  const sublabels: Record<string, string> = {
+    programming: "· Telegram-боты и Mini Apps",
+    design: "· UI/UX, баннеры и айдентика",
+    marketing: "· Трафик, SMM и реклама",
+    copywriting: "· Тексты, сценарии и посты",
   };
-  return emojis[category] || "📋";
+  return sublabels[category] || "";
 }
 
 export function getSubscriptionLabel(tier: string): string {

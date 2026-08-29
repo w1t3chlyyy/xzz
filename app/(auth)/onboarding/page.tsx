@@ -3,135 +3,258 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Briefcase, UserCheck, Sparkles } from "lucide-react";
+import {
+  Briefcase,
+  UserCheck,
+  Sparkles,
+  ArrowRight,
+  ShieldCheck,
+  Zap,
+  Check,
+  Loader2,
+  Layers,
+  Send
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { expandTelegramApp, setTelegramHeaderColor } from "@/lib/telegram/webapp";
+import { expandTelegramApp, setTelegramHeaderColor, getTelegramUser, getTelegramInitData, type ExtractedTelegramUser } from "@/lib/telegram/webapp";
 
 export default function OnboardingPage() {
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [selectedRole, setSelectedRole] = useState<"client" | "executor" | null>(null);
+  const [tgUser, setTgUser] = useState<ExtractedTelegramUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     expandTelegramApp();
-    setTelegramHeaderColor("#1A0B2E");
+    setTelegramHeaderColor("#F4F3FA");
+
+    const user = getTelegramUser();
+    if (user) {
+      setTgUser(user);
+    }
+
+    const initData = getTelegramInitData();
+    if (initData) {
+      fetch("/api/auth/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.role && (data.role === "client" || data.role === "executor")) {
+            setSelectedRole(data.role);
+            localStorage.setItem("fiolet_role", data.role);
+            localStorage.setItem("1337_role", data.role);
+          }
+        })
+        .catch((e) => console.warn("TG auto-auth notice:", e));
+    }
+
+    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role");
+    if (savedRole === "client" || savedRole === "executor") {
+      setSelectedRole(savedRole as "client" | "executor");
+    }
   }, []);
 
-  const handleRoleSelect = async (role: string) => {
+  const handleRoleSelect = async (role: "client" | "executor") => {
     setSelectedRole(role);
     setIsLoading(true);
-    const supabase = createClient();
+    localStorage.setItem("fiolet_role", role);
+    localStorage.setItem("1337_role", role);
 
+    const supabase = createClient();
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      if (!user) {
-        throw new Error("User not authenticated");
+      if (user) {
+        await supabase
+          .from("users")
+          .update({
+            role,
+            first_name: tgUser?.first_name || user.user_metadata?.first_name,
+            username: tgUser?.username || user.user_metadata?.username,
+          })
+          .eq("id", user.id);
+
+        if (role === "executor") {
+          await supabase.from("executor_profiles").upsert({
+            id: user.id,
+            skills: ["Программирование", "Дизайн", "AI"],
+            bio: "Специалист по разработке и AI автоматизации.",
+            rating: 5.0,
+            completed_orders: 0,
+          });
+        }
       }
-
-      const { error } = await supabase
-        .from("users")
-        .update({ role })
-        .eq("id", user.id);
-
-      if (error) throw error;
-
-      // Создаём профиль исполнителя если нужно
-      if (role === "executor") {
-        await supabase.from("executor_profiles").upsert({
-          id: user.id,
-          skills: [],
-          bio: "",
-          rating: 5.0,
-          completed_orders: 0,
-        });
-      }
-
-      router.push("/feed");
-      router.refresh();
     } catch (error) {
-      console.error("Error selecting role:", error);
-      setIsLoading(false);
+      console.warn("Role update fallback:", error);
+    } finally {
+      setTimeout(() => {
+        router.push("/feed");
+        router.refresh();
+      }, 350);
     }
   };
 
-  const roles = [
-    {
-      id: "client",
-      title: "Заказчик",
-      description: "Ищу исполнителей для своих проектов",
-      icon: Briefcase,
-      gradient: "from-violet-600 to-purple-500",
-    },
-    {
-      id: "executor",
-      title: "Исполнитель",
-      description: "Хочу находить заказы и зарабатывать",
-      icon: UserCheck,
-      gradient: "from-fuchsia-600 to-violet-500",
-    },
-  ];
-
   return (
-    <div className="min-h-screen bg-violet-dark flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-[#F4F3FA] flex flex-col justify-between p-5 max-w-md mx-auto text-slate-900 font-sans selection:bg-purple-200">
+      {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-10"
+        transition={{ duration: 0.3 }}
+        className="text-center pt-4"
       >
-        <div className="flex items-center justify-center gap-2 mb-4">
-          <Sparkles className="w-8 h-8 text-violet-accent" />
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-primary to-violet-accent bg-clip-text text-transparent">
-            Фиолет
-          </h1>
-          <Sparkles className="w-8 h-8 text-violet-accent" />
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-extrabold uppercase tracking-wider mb-3 border border-purple-200 shadow-xs">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Telegram WebApp Биржа</span>
         </div>
-        <p className="text-violet-200 text-lg">
-          Выберите, кем вы хотите быть
-        </p>
+
+        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center justify-center gap-2">
+          <span>1337</span>
+        </h1>
+        {tgUser ? (
+          <p className="text-violet-700 font-bold text-xs mt-1">
+            Привет, {tgUser.displayName}! {tgUser.displayUsername && <span className="text-slate-400 font-medium">({tgUser.displayUsername})</span>}
+          </p>
+        ) : (
+          <p className="text-slate-500 text-xs mt-1.5 max-w-xs mx-auto leading-relaxed">
+            Выберите вашу роль, чтобы настроить ленту заказов и персональные инструменты
+          </p>
+        )}
       </motion.div>
 
-      <div className="w-full max-w-md space-y-4">
-        {roles.map((role, index) => (
-          <motion.button
-            key={role.id}
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.15 }}
-            onClick={() => handleRoleSelect(role.id)}
-            disabled={isLoading}
-            className={`
-              w-full p-6 rounded-2xl border transition-all duration-300
-              ${selectedRole === role.id 
-                ? "border-violet-accent bg-violet-surface shadow-violet-lg" 
-                : "border-violet-border bg-violet-surface/50 hover:bg-violet-surface hover:border-violet-primary/60"
-              }
-              ${isLoading && selectedRole === role.id ? "opacity-70" : ""}
-            `}
-          >
-            <div className="flex items-center gap-4">
-              <div className={`p-3 rounded-xl bg-gradient-to-br ${role.gradient}`}>
-                <role.icon className="w-7 h-7 text-white" />
+      {/* Role Selection Cards */}
+      <div className="space-y-3.5 my-5">
+        {/* Executor Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+          whileTap={{ scale: 0.985 }}
+          onClick={() => !isLoading && handleRoleSelect("executor")}
+          className={`cursor-pointer bg-white rounded-3xl p-5 border transition-all relative overflow-hidden ${
+            selectedRole === "executor"
+              ? "border-violet-600 shadow-[0_4px_25px_rgba(124,58,237,0.12)] ring-2 ring-violet-500/20"
+              : "border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:border-violet-300"
+          }`}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-purple-100 border border-purple-200 flex items-center justify-center text-violet-700 shrink-0">
+                <UserCheck className="w-6 h-6 stroke-[2.2]" />
               </div>
-              <div className="text-left">
-                <h3 className="text-xl font-bold text-white">{role.title}</h3>
-                <p className="text-violet-200 text-sm mt-1">{role.description}</p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-extrabold text-base text-slate-900">Исполнитель</h3>
+                  <span className="badge-violet text-[10px] font-extrabold py-0.5 px-2 rounded-lg">
+                    Поиск заказов
+                  </span>
+                </div>
+                <p className="text-slate-500 text-xs mt-0.5 font-medium">
+                  Хочу откликаться на проекты и зарабатывать
+                </p>
               </div>
             </div>
-          </motion.button>
-        ))}
+            {selectedRole === "executor" && (
+              <span className="w-6 h-6 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+              </span>
+            )}
+          </div>
+
+          <div className="mt-3.5 pt-3 border-t border-slate-100 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
+            <span className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-lg">
+              <Zap className="w-3 h-3 text-violet-600" />
+              AI автоотклики
+            </span>
+            <span className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-lg">
+              <Send className="w-3 h-3 text-blue-600" />
+              Прямой контакт
+            </span>
+          </div>
+        </motion.div>
+
+        {/* Client Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          whileTap={{ scale: 0.985 }}
+          onClick={() => !isLoading && handleRoleSelect("client")}
+          className={`cursor-pointer bg-white rounded-3xl p-5 border transition-all relative overflow-hidden ${
+            selectedRole === "client"
+              ? "border-violet-600 shadow-[0_4px_25px_rgba(124,58,237,0.12)] ring-2 ring-violet-500/20"
+              : "border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:border-violet-300"
+          }`}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0">
+                <Briefcase className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-extrabold text-base text-slate-900">Заказчик</h3>
+                  <span className="badge-blue text-[10px] font-extrabold py-0.5 px-2 rounded-lg">
+                    Публикация
+                  </span>
+                </div>
+                <p className="text-slate-500 text-xs mt-0.5 font-medium">
+                  Ищу проверенных специалистов для своих задач
+                </p>
+              </div>
+            </div>
+            {selectedRole === "client" && (
+              <span className="w-6 h-6 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+              </span>
+            )}
+          </div>
+
+          <div className="mt-3.5 pt-3 border-t border-slate-100 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
+            <span className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-lg">
+              <Layers className="w-3 h-3 text-blue-600" />
+              База исполнителей
+            </span>
+            <span className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-lg">
+              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+              Безопасная сделка
+            </span>
+          </div>
+        </motion.div>
       </div>
 
-      {isLoading && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mt-8 flex items-center gap-2 text-violet-accent"
+      {/* Action Footer */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="space-y-3 pt-2 pb-4"
+      >
+        <button
+          onClick={() => selectedRole && handleRoleSelect(selectedRole)}
+          disabled={!selectedRole || isLoading}
+          className="w-full btn-primary py-3.5 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-violet disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <div className="w-5 h-5 border-2 border-violet-accent border-t-transparent rounded-full animate-spin" />
-          <span>Сохраняем выбор...</span>
-        </motion.div>
-      )}
+          {isLoading ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Настройка профиля...</span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <span>Продолжить как {selectedRole === "client" ? "Заказчик" : selectedRole === "executor" ? "Исполнитель" : "..."}</span>
+              <ArrowRight className="w-4 h-4" />
+            </span>
+          )}
+        </button>
+
+        <p className="text-center text-[11px] text-slate-400 font-medium">
+          Вы сможете переключить роль в любое время в профиле
+        </p>
+      </motion.div>
     </div>
   );
 }

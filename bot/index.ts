@@ -35,7 +35,7 @@ bot.onText(/\/start/, async (msg) => {
     .single();
 
   const welcomeText = settings?.welcome_message || 
-    `👋 Добро пожаловать в <b>Фиолет</b>!\n\n` +
+    `👋 Добро пожаловать в <b>1337</b>!\n\n` +
     `🎯 Фриланс биржа прямо в Telegram\n` +
     `💼 Находите заказы и исполнителей\n` +
     `⚡️ AI-помощник для откликов\n\n` +
@@ -45,7 +45,7 @@ bot.onText(/\/start/, async (msg) => {
     inline_keyboard: [
       [
         {
-          text: "🚀 Открыть Фиолет",
+          text: "🚀 Открыть 1337",
           web_app: { url: process.env.NEXT_PUBLIC_SITE_URL! },
         },
       ],
@@ -81,7 +81,7 @@ bot.onText(/\/admin/, async (msg) => {
     ],
   };
 
-  bot.sendMessage(chatId, "🔧 <b>Админ-панель Фиолет</b>\n\nВыберите действие:", {
+  bot.sendMessage(chatId, "🔧 <b>Админ-панель 1337</b>\n\nВыберите действие:", {
     parse_mode: "HTML",
     reply_markup: keyboard,
   });
@@ -122,7 +122,7 @@ bot.on("callback_query", async (query) => {
     const totalRevenue = payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
 
     const statsText = 
-      `📊 <b>Статистика Фиолет</b>\n\n` +
+      `📊 <b>Статистика 1337</b>\n\n` +
       `👥 Пользователей: <b>${usersCount || 0}</b>\n` +
       `📋 Заказов: <b>${ordersCount || 0}</b>\n` +
       `💬 Откликов: <b>${responsesCount || 0}</b>\n` +

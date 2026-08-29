@@ -1,14 +1,14 @@
-# 💜 Фиолет — Telegram Mini App для фриланса
+# ⚡ 1337 — Telegram Mini App для фриланса
 
-Фриланс биржа прямо в Telegram. Найди исполнителя или заказ за пару кликов.
+Фриланс биржа 1337 прямо в Telegram. Найди исполнителя или заказ за пару кликов.
 
 ## 🚀 Быстрый старт
 
 ### 1. Клонирование и установка
 
 ```bash
-git clone https://github.com/yourusername/fiolet.git
-cd fiolet
+git clone https://github.com/yourusername/app-1337.git
+cd app-1337
 npm install
 ```
 

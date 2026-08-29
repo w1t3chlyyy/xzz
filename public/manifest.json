@@ -1,7 +1,7 @@
 {
-  "name": "Фиолет",
-  "short_name": "Фиолет",
-  "description": "Фриланс биржа в Telegram",
+  "name": "1337",
+  "short_name": "1337",
+  "description": "Фриланс биржа в Telegram 1337",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1A0B2E",
