@@ -26,6 +26,10 @@ export const telegram = {
   sendMessage: (chatId: number | string, text: string, extra: Record<string, unknown> = {}) =>
     call("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", ...extra }),
 
+  // photo: либо file_id уже загруженного в Telegram файла, либо прямой https URL.
+  sendPhoto: (chatId: number | string, photo: string, extra: Record<string, unknown> = {}) =>
+    call("sendPhoto", { chat_id: chatId, photo, parse_mode: "HTML", ...extra }),
+
   editMessageText: (
     chatId: number | string,
     messageId: number,
