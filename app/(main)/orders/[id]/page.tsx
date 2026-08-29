@@ -1,364 +1,534 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
+import { getTelegramUser } from "@/lib/telegram/webapp";
 import {
   ArrowLeft,
-  ReceiptText,
+  Calendar,
+  DollarSign,
   User,
+  MessageSquare,
+  Clock,
+  CheckCircle,
+  XCircle,
   Send,
-  Loader2,
-  Laptop,
-  Palette,
-  TrendingUp,
-  PenTool,
-  Layers,
-  Bookmark,
+  Eye,
   Briefcase,
-  ExternalLink,
+  Tag,
+  Users,
+  Star,
+  ShieldCheck,
+  Zap,
+  Award,
+  Loader2,
+  Plus,
+  Heart,
+  Share2,
+  Bookmark,
+  Flag
 } from "lucide-react";
-import { getCategoryLabel, getCategorySublabel, formatDate } from "@/lib/utils";
 import Link from "next/link";
 
-interface OrderDetail {
+interface Order {
   id: string;
   title: string;
   description: string;
   category: string;
-  budget_min: number | null;
-  budget_max: number | null;
+  budget_min: number;
+  budget_max: number;
   status: string;
   created_at: string;
+  client_id: string;
   client: {
-    id: string;
     first_name: string;
     username: string;
+    rating?: number;
+    avatar?: string;
   };
+  responses_count?: number;
+  is_favorited?: boolean;
 }
 
 interface Response {
   id: string;
   message: string;
-  ai_draft: string | null;
-  status: string;
+  budget: number;
+  status: 'pending' | 'accepted' | 'rejected';
   created_at: string;
   executor: {
     first_name: string;
     username: string;
+    rating?: number;
   };
 }
 
-const getCategoryIcon = (category: string) => {
-  switch (category) {
-    case "programming":
-      return <Laptop className="w-4 h-4 text-sky-600" />;
-    case "design":
-      return <Palette className="w-4 h-4 text-purple-600" />;
-    case "marketing":
-      return <TrendingUp className="w-4 h-4 text-emerald-600" />;
-    case "copywriting":
-      return <PenTool className="w-4 h-4 text-amber-600" />;
-    default:
-      return <Layers className="w-4 h-4 text-violet-600" />;
-  }
-};
-
-const getCategoryIconBg = (category: string) => {
-  switch (category) {
-    case "programming":
-      return "bg-sky-50 border-sky-100";
-    case "design":
-      return "bg-purple-50 border-purple-100";
-    case "marketing":
-      return "bg-emerald-50 border-emerald-100";
-    case "copywriting":
-      return "bg-amber-50 border-amber-100";
-    default:
-      return "bg-violet-50 border-violet-100";
-  }
-};
-
-export default function OrderDetailPage() {
-  const { id } = useParams();
-  const [order, setOrder] = useState<OrderDetail | null>(null);
-  const [responses, setResponses] = useState<Response[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [responseMessage, setResponseMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
+export default function OrderDetailPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const supabase = createClient();
-
-  const loadData = useCallback(async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) setUserId(user.id);
-
-      const { data: orderData } = await supabase
-        .from("orders")
-        .select(`
-          id, title, description, category, budget_min, budget_max, status, created_at,
-          client:client_id(id, first_name, username)
-        `)
-        .eq("id", id)
-        .single();
-
-      if (orderData) {
-        const clientObj = Array.isArray((orderData as any).client)
-          ? (orderData as any).client[0]
-          : (orderData as any).client;
-        setOrder({ ...orderData, client: clientObj || { id: "", first_name: "", username: "" } });
-      } else {
-        setOrder({
-          id: id as string,
-          title: "Разработка Telegram бота и Mini App рулетки на звезды",
-          description:
-            "ищу разработчика который сделает tg бота, mini-app рулетка на звезды, бюджет маленький, выслушаю вашу цену, тз в лс.\n\nТребования:\n- Опыт с Telegram WebApp API и Stars payment\n- Стек: React/Next.js + Node.js",
-          category: "programming",
-          budget_min: 20000,
-          budget_max: 35000,
-          status: "active",
-          created_at: new Date().toISOString(),
-          client: { id: "client-1", first_name: "Иван", username: "client_tg" },
-        });
-      }
-
-      const { data: responsesData } = await supabase
-        .from("responses")
-        .select(`
-          id, message, ai_draft, status, created_at,
-          executor:executor_id(first_name, username)
-        `)
-        .eq("order_id", id)
-        .order("created_at", { ascending: false });
-
-      if (responsesData && responsesData.length > 0) {
-        setResponses(
-          responsesData.map((response: any) => {
-            const execObj = Array.isArray(response.executor) ? response.executor[0] : response.executor;
-            return { ...response, executor: execObj || { first_name: "", username: "" } };
-          })
-        );
-      }
-    } catch {
-      // fallback уже обработан выше
-    } finally {
-      setIsLoading(false);
-    }
-  }, [id, supabase]);
+  const [order, setOrder] = useState<Order | null>(null);
+  const [responses, setResponses] = useState<Response[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<string>('client');
+  const [user, setUser] = useState<any>(null);
+  const [showResponseForm, setShowResponseForm] = useState(false);
+  const [responseMessage, setResponseMessage] = useState('');
+  const [responseBudget, setResponseBudget] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
+    setRole(savedRole);
+    loadOrder();
+    loadUser();
+  }, []);
 
-  async function handleSubmitResponse() {
-    if (!responseMessage.trim()) return;
-    setIsSubmitting(true);
+  const loadUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setUser(user);
+  };
+
+  const loadOrder = async () => {
+    setLoading(true);
     try {
-      if (userId) {
-        await supabase.from("responses").insert({
-          order_id: id as string,
-          executor_id: userId,
-          message: responseMessage,
-          status: "pending",
-        });
-      }
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          client:client_id (
+            first_name,
+            username,
+            rating
+          )
+        `)
+        .eq('id', params.id)
+        .single();
 
-      setResponses((prev) => [
-        {
-          id: `res-${Date.now()}`,
-          message: responseMessage,
-          ai_draft: null,
-          status: "pending",
-          created_at: new Date().toISOString(),
-          executor: { first_name: "Вы", username: "me" },
-        },
-        ...prev,
-      ]);
-      setResponseMessage("");
+      if (orderError) throw orderError;
+      setOrder(orderData);
+
+      // Загружаем отклики
+      const { data: responsesData, error: responsesError } = await supabase
+        .from('responses')
+        .select(`
+          *,
+          executor:executor_id (
+            first_name,
+            username,
+            rating
+          )
+        `)
+        .eq('order_id', params.id)
+        .order('created_at', { ascending: false });
+
+      if (responsesError) throw responsesError;
+      setResponses(responsesData || []);
+
     } catch (error) {
-      console.error("Error submitting response:", error);
+      console.error('Error loading order:', error);
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
-  }
+  };
 
-  async function handleAcceptResponse(responseId: string) {
+  const handleSubmitResponse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !order) return;
+    if (!responseMessage.trim()) return;
+
+    setSubmitting(true);
     try {
-      await supabase.from("responses").update({ status: "accepted" }).eq("id", responseId);
-      setResponses((prev) => prev.map((r) => (r.id === responseId ? { ...r, status: "accepted" } : r)));
-    } catch (error) {
-      console.error("Error accepting response:", error);
-    }
-  }
+      const { error } = await supabase
+        .from('responses')
+        .insert({
+          order_id: order.id,
+          executor_id: user.id,
+          client_id: order.client_id,
+          message: responseMessage,
+          budget: parseInt(responseBudget) || order.budget_min || 0,
+          status: 'pending'
+        });
 
-  if (isLoading) {
+      if (error) throw error;
+
+      // Обновляем список откликов
+      await loadOrder();
+      setShowResponseForm(false);
+      setResponseMessage('');
+      setResponseBudget('');
+    } catch (error) {
+      console.error('Error submitting response:', error);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'closed':
+        return 'bg-slate-50 text-slate-700 border-slate-200';
+      case 'cancelled':
+        return 'bg-red-50 text-red-700 border-red-200';
+      default:
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'Активный';
+      case 'closed':
+        return 'Закрыт';
+      case 'cancelled':
+        return 'Отменен';
+      default:
+        return status;
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 text-violet-600 animate-spin" />
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
       </div>
     );
   }
 
   if (!order) {
     return (
-      <div className="bg-white rounded-3xl p-8 text-center border border-slate-100 space-y-3">
-        <p className="font-bold text-slate-800">Заказ не найден</p>
-        <Link href="/feed" className="btn-primary inline-flex text-xs px-4 py-2">
-          Вернуться в ленту
+      <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center space-y-3">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center mx-auto">
+          <Briefcase className="w-8 h-8" />
+        </div>
+        <div>
+          <h3 className="text-sm font-extrabold text-slate-900">Заказ не найден</h3>
+          <p className="text-xs text-slate-500 mt-1">Возможно, он был удален или перемещен</p>
+        </div>
+        <Link href="/feed" className="btn-primary py-2.5 px-5 rounded-2xl text-xs font-bold inline-flex items-center gap-2 shadow-violet">
+          <span>Вернуться к заказам</span>
         </Link>
       </div>
     );
   }
 
-  const isOwner = userId === order.client.id;
-  const budgetText =
-    order.budget_min && order.budget_max
-      ? `${order.budget_min.toLocaleString("ru-RU")}–${order.budget_max.toLocaleString("ru-RU")} ₽`
-      : order.budget_min
-      ? `от ${order.budget_min.toLocaleString("ru-RU")} ₽`
-      : "по договорённости";
-
   return (
     <div className="space-y-3 pb-20">
-      {/* Навигация */}
+      {/* Navigation */}
       <div className="flex items-center justify-between">
         <Link href="/feed">
           <motion.button
             whileTap={{ scale: 0.92 }}
-            className="w-9 h-9 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 hover:border-violet-300 hover:text-violet-700 shadow-xs transition-colors"
+            className="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 hover:border-violet-300 hover:text-violet-700 shadow-xs transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </motion.button>
         </Link>
-        <button
-          onClick={() => setIsSaved(!isSaved)}
-          className={`w-9 h-9 rounded-2xl border flex items-center justify-center shadow-xs transition-colors ${
-            isSaved ? "bg-violet-600 text-white border-violet-600" : "bg-white border-slate-200 text-slate-700 hover:border-violet-300"
-          }`}
-        >
-          <Bookmark className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="p-2 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors">
+            <Bookmark className="w-4 h-4 text-slate-500" />
+          </button>
+          <button className="p-2 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors">
+            <Share2 className="w-4 h-4 text-slate-500" />
+          </button>
+          <button className="p-2 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors">
+            <Flag className="w-4 h-4 text-slate-500" />
+          </button>
+        </div>
       </div>
 
-      {/* Карточка заказа — компактная */}
-      <div className="bg-white rounded-3xl p-4 space-y-3 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${getCategoryIconBg(order.category)}`}>
-              {getCategoryIcon(order.category)}
+      {/* Order Details */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.04)] space-y-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-extrabold text-slate-900">
+                {order.title}
+              </h1>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getStatusColor(order.status)}`}>
+                {getStatusText(order.status)}
+              </span>
             </div>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-1 flex-wrap">
-                <span className="font-bold text-sm text-slate-900 leading-tight">{getCategoryLabel(order.category)}</span>
-                <span className="text-slate-500 font-medium text-[11px]">{getCategorySublabel(order.category)}</span>
-              </div>
-              <p className="text-slate-400 text-[11px]">{formatDate(order.created_at)}</p>
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+              <span className="flex items-center gap-1">
+                <Tag className="w-3.5 h-3.5" />
+                <span>{order.category}</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" />
+                <span>{new Date(order.created_at).toLocaleDateString('ru-RU')}</span>
+              </span>
             </div>
           </div>
-          <span className="bg-[#2563EB] text-white font-bold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
-            Активен
-          </span>
+
+          <div className="text-right shrink-0">
+            <div className="text-sm font-extrabold text-violet-700">
+              {order.budget_min?.toLocaleString()} - {order.budget_max?.toLocaleString()} ₽
+            </div>
+            <div className="text-[10px] text-slate-400 font-medium">
+              Бюджет
+            </div>
+          </div>
         </div>
 
-        {order.title && <h2 className="font-extrabold text-base text-slate-900 leading-snug">{order.title}</h2>}
-
-        <p className="text-slate-700 text-xs font-medium leading-relaxed whitespace-pre-line max-h-40 overflow-y-auto pr-1">
-          {order.description}
-        </p>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="badge-yellow text-[11px] font-semibold flex items-center gap-1 py-1 px-2.5 rounded-xl">
-            <ReceiptText className="w-3.5 h-3.5 text-amber-700" />
-            <span>{budgetText}</span>
+        {/* Client Info */}
+        <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold">
+            {order.client?.first_name?.[0] || 'А'}
           </div>
-          <div className="badge-blue text-[11px] font-semibold flex items-center gap-1 py-1 px-2.5 rounded-xl">
-            <Briefcase className="w-3.5 h-3.5 text-blue-700" />
-            <span>Telegram WebApp</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-extrabold text-slate-900">
+                {order.client?.first_name || 'Заказчик'}
+              </span>
+              {order.client?.rating && (
+                <span className="flex items-center gap-0.5 text-xs">
+                  <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                  <span className="font-bold text-slate-900">{order.client.rating}</span>
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 font-medium">@{order.client?.username || 'client'}</p>
+          </div>
+          <button className="text-xs font-bold text-violet-600 bg-white px-3 py-1.5 rounded-xl border border-violet-200 hover:bg-violet-50 transition-colors">
+            <MessageSquare className="w-3.5 h-3.5 inline mr-1" />
+            <span>Написать</span>
+          </button>
+        </div>
+
+        {/* Description */}
+        <div>
+          <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+            <FileText className="w-4 h-4 text-violet-600" />
+            Описание задачи
+          </h2>
+          <div className="bg-slate-50 rounded-2xl p-3.5 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap border border-slate-100">
+            {order.description || 'Описание отсутствует'}
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-          <div className="flex items-center gap-2 text-slate-600 font-medium">
-            <div className="w-6 h-6 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center font-bold text-[11px]">
-              {order.client.first_name?.[0] || "U"}
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-2 pt-2">
+          <div className="text-center p-2.5 rounded-xl bg-purple-50 border border-purple-100">
+            <div className="text-xs font-extrabold text-violet-700">
+              {responses.length}
             </div>
-            <span>{order.client.first_name || `@${order.client.username}`}</span>
+            <div className="text-[10px] text-slate-500 font-medium">Откликов</div>
           </div>
-          {order.client.username && (
-            
-              href={`https://t.me/${order.client.username}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[#2563EB] hover:underline font-semibold flex items-center gap-1"
+          <div className="text-center p-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
+            <div className="text-xs font-extrabold text-emerald-700">
+              {responses.filter(r => r.status === 'accepted').length}
+            </div>
+            <div className="text-[10px] text-slate-500 font-medium">Принято</div>
+          </div>
+          <div className="text-center p-2.5 rounded-xl bg-amber-50 border border-amber-100">
+            <div className="text-xs font-extrabold text-amber-700">
+              {responses.filter(r => r.status === 'pending').length}
+            </div>
+            <div className="text-[10px] text-slate-500 font-medium">Ожидают</div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Responses Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.04)] space-y-4"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-violet-600" />
+              Отклики ({responses.length})
+            </h2>
+            <p className="text-slate-400 text-[11px] font-medium mt-0.5">
+              Исполнители, заинтересованные в задаче
+            </p>
+          </div>
+
+          {role === 'executor' && order.status === 'active' && (
+            <button
+              onClick={() => setShowResponseForm(!showResponseForm)}
+              className="btn-primary text-xs font-extrabold py-2 px-3 rounded-xl flex items-center gap-1 shadow-violet"
             >
-              <span>@{order.client.username}</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Откликнуться</span>
+            </button>
           )}
         </div>
-      </div>
 
-      {/* Форма отклика — без AI */}
-      <div className="bg-white rounded-3xl p-4 space-y-2.5 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-        <h3 className="font-bold text-slate-900 text-xs">Оставить отклик</h3>
-        <textarea
-          value={responseMessage}
-          onChange={(e) => setResponseMessage(e.target.value)}
-          placeholder="Напишите ваш отклик на заявку..."
-          rows={3}
-          className="w-full p-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-violet-500 focus:bg-white focus:outline-none resize-none text-xs leading-relaxed font-medium transition-all"
-        />
-        <button
-          onClick={handleSubmitResponse}
-          disabled={isSubmitting || !responseMessage.trim()}
-          className="w-full btn-primary py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          <span>Отправить отклик</span>
-        </button>
-      </div>
-
-      {/* Список откликов */}
-      {responses.length > 0 && (
-        <div className="space-y-2 pt-1">
-          <h3 className="font-extrabold text-xs text-slate-900 px-1">Отклики ({responses.length})</h3>
-          {responses.map((response) => (
-            <motion.div
-              key={response.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-2xl p-3 space-y-2 border border-slate-100 shadow-xs"
+        {/* Response Form */}
+        <AnimatePresence>
+          {showResponseForm && (
+            <motion.form
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              onSubmit={handleSubmitResponse}
+              className="bg-purple-50/70 border border-purple-200 rounded-2xl p-4 space-y-3 overflow-hidden"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white text-[11px] font-bold">
-                    {response.executor.first_name?.[0] || "U"}
-                  </div>
-                  <span className="font-bold text-xs text-slate-900">{response.executor.first_name}</span>
-                </div>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    response.status === "accepted"
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                      : "badge-yellow"
-                  }`}
-                >
-                  {response.status === "accepted" ? "Принят" : "На рассмотрении"}
-                </span>
+              <div>
+                <label className="block text-xs font-bold text-slate-900 mb-1">
+                  Ваше предложение *
+                </label>
+                <textarea
+                  value={responseMessage}
+                  onChange={(e) => setResponseMessage(e.target.value)}
+                  placeholder="Опишите, как вы можете помочь, ваш опыт и подход..."
+                  rows={3}
+                  className="w-full p-3 rounded-xl bg-white border border-purple-200 text-slate-900 text-xs font-medium focus:border-violet-600 focus:outline-none resize-none leading-relaxed"
+                  required
+                />
               </div>
-              <p className="text-slate-800 text-xs font-medium leading-relaxed">{response.message}</p>
-              {isOwner && response.status === "pending" && (
-                <button onClick={() => handleAcceptResponse(response.id)} className="w-full btn-primary text-xs py-1.5 rounded-xl mt-1">
-                  Выбрать исполнителем
+
+              <div>
+                <label className="block text-xs font-bold text-slate-900 mb-1">
+                  Ваш бюджет (₽)
+                </label>
+                <input
+                  type="number"
+                  value={responseBudget}
+                  onChange={(e) => setResponseBudget(e.target.value)}
+                  placeholder={order.budget_min?.toString() || '0'}
+                  className="w-full p-2.5 rounded-xl bg-white border border-purple-200 text-slate-900 text-xs font-medium focus:border-violet-600 focus:outline-none"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Рекомендуемый бюджет: {order.budget_min?.toLocaleString()} - {order.budget_max?.toLocaleString()} ₽
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 btn-primary py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-violet disabled:opacity-50"
+                >
+                  {submitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  <span>Отправить отклик</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setShowResponseForm(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors"
+                >
+                  Отмена
+                </button>
+              </div>
+            </motion.form>
+          )}
+        </AnimatePresence>
+
+        {/* Responses List */}
+        <div className="space-y-3">
+          {responses.length === 0 ? (
+            <div className="text-center py-6">
+              <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center mx-auto mb-2">
+                <Users className="w-6 h-6" />
+              </div>
+              <p className="text-xs text-slate-500 font-medium">
+                Пока нет откликов
+              </p>
+              {role === 'executor' && (
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Станьте первым, кто откликнется!
+                </p>
               )}
-            </motion.div>
-          ))}
+            </div>
+          ) : (
+            responses.map((response, index) => (
+              <motion.div
+                key={response.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2.5"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold text-sm">
+                      {response.executor?.first_name?.[0] || 'И'}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-extrabold text-slate-900">
+                          {response.executor?.first_name || 'Исполнитель'}
+                        </span>
+                        {response.executor?.rating && (
+                          <span className="flex items-center gap-0.5 text-[11px]">
+                            <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                            <span className="font-bold text-slate-900">{response.executor.rating}</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-medium">
+                        @{response.executor?.username || 'executor'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-extrabold text-violet-700">
+                      {response.budget?.toLocaleString()} ₽
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      response.status === 'accepted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                      response.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-200' :
+                      'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}>
+                      {response.status === 'accepted' ? 'Принят' :
+                       response.status === 'rejected' ? 'Отклонен' :
+                       'На рассмотрении'}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                  {response.message}
+                </p>
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {new Date(response.created_at).toLocaleDateString('ru-RU', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </span>
+
+                  {role === 'client' && response.status === 'pending' && (
+                    <div className="flex gap-1.5">
+                      <button className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors" title="Принять">
+                        <CheckCircle className="w-4 h-4" />
+                      </button>
+                      <button className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 transition-colors" title="Отклонить">
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            ))
+          )}
         </div>
-      )}
+      </motion.div>
     </div>
   );
 }
+
+// Добавляем недостающий импорт FileText
+import { FileText } from "lucide-react";
