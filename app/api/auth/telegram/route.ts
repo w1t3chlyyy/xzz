@@ -19,10 +19,7 @@ function verifyTelegramInitData(initData: string, botToken: string): TelegramUse
 
     const urlParams = new URLSearchParams(initData);
     const hash = urlParams.get("hash");
-    if (!hash) {
-      console.log("❌ No hash field in initData at all");
-      return null;
-    }
+    if (!hash) return null;
 
     urlParams.delete("hash");
 
@@ -34,28 +31,17 @@ function verifyTelegramInitData(initData: string, botToken: string): TelegramUse
     const secretKey = crypto.createHmac("sha256", "WebAppData").update(cleanToken).digest();
     const computedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
 
-    // ВРЕМЕННО для отладки — удалить после диагностики
-    console.log("RAW initData:", initData);
-    console.log("dataCheckString:", JSON.stringify(dataCheckString));
-    console.log("botToken length:", cleanToken.length, "first 6 chars:", cleanToken.slice(0, 6));
-    console.log("received hash :", hash);
-    console.log("computed hash :", computedHash);
-    console.log("match:", computedHash === hash);
-
     if (computedHash !== hash) return null;
 
     const authDate = Number(urlParams.get("auth_date"));
-    if (!authDate || Date.now() / 1000 - authDate > 86400) {
-      console.log("❌ auth_date expired or missing");
-      return null;
-    }
+    if (!authDate || Date.now() / 1000 - authDate > 86400) return null;
 
     const userRaw = urlParams.get("user");
     if (!userRaw) return null;
 
     return JSON.parse(userRaw) as TelegramUser;
   } catch (e) {
-    console.log("❌ Verification threw:", e);
+    console.error("Telegram initData verification threw:", e instanceof Error ? e.message : e);
     return null;
   }
 }
@@ -105,6 +91,10 @@ export async function POST(request: NextRequest) {
 
     const userId = signInData.user.id;
 
+    // Намеренно НЕ передаём trial_started_at здесь: у колонки есть
+    // DEFAULT now(), поэтому он выставляется один раз при первой вставке
+    // строки и не перезаписывается при повторных входах (upsert обновляет
+    // только перечисленные ниже поля).
     await admin.from("users").upsert(
       {
         id: userId,
@@ -118,18 +108,14 @@ export async function POST(request: NextRequest) {
       { onConflict: "id" }
     );
 
-    const { data: userData } = await admin
-      .from("users")
-      .select("role")
-      .eq("id", userId)
-      .single();
+    const { data: userData } = await admin.from("users").select("role").eq("id", userId).single();
 
     return NextResponse.json({
       success: true,
       role: userData?.role || null,
     });
   } catch (error) {
-    console.error("Telegram auth error:", error);
+    console.error("Telegram auth error:", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "Auth failed" }, { status: 500 });
   }
 }
