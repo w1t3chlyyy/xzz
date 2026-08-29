@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCryptoBotClient } from "@/lib/crypto-bot/client";
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,21 +20,27 @@ export async function POST(request: NextRequest) {
     // Try CryptoBot if token is available
     if (process.env.CRYPTOBOT_API_TOKEN && method === "crypto") {
       try {
-        const { createInvoice } = await import("@/lib/crypto-bot/client");
-        const invoice = await createInvoice({
-          amount: planPrice.usdt,
+        const client = getCryptoBotClient();
+        
+        const invoice = await client.createInvoice({
+          amount: planPrice.usdt.toString(),
           asset: "USDT",
           description: `Подписка 1337 ${tier.toUpperCase()} на ${durationDays} дней`,
           payload: JSON.stringify({ tier, durationDays }),
+          allow_comments: true,
+          allow_anonymous: false,
+          expires_in: 3600
         });
 
         return NextResponse.json({
           success: true,
           payUrl: invoice.pay_url,
           invoiceId: invoice.invoice_id,
+          status: invoice.status
         });
       } catch (cryptoErr) {
         console.warn("CryptoBot invoice creation error:", cryptoErr);
+        // Fall through to default response
       }
     }
 
