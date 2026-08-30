@@ -145,7 +145,10 @@ async function handleMessage(msg: any, supabase: AdminClient) {
         "Отправьте <b>фото с подписью</b> <code>/setwelcome текст</code> — чтобы приветствие показывалось с картинкой.\n" +
         "<code>/removewelcomephoto</code> — убрать фото из приветствия (текст останется).\n" +
         "<code>/setprices 990</code> — цена подписки Pro (₽)\n" +
-        "<code>/setrequisites текст</code> — реквизиты для оплаты переводом\n",
+        "<code>/setrequisites текст</code> — реквизиты для оплаты переводом\n" +
+        "<code>/grant telegram_id дни</code> — вручную выдать/продлить подписку Pro\n" +
+        "<code>/revoke telegram_id</code> — досрочно снять подписку\n" +
+        "<code>/broadcast текст</code> — рассылка всем пользователям бота\n",
       {
         reply_markup: {
           inline_keyboard: [
@@ -216,6 +219,154 @@ async function handleMessage(msg: any, supabase: AdminClient) {
       .update({ details: value, updated_at: new Date().toISOString() })
       .eq("id", 1);
     await telegram.sendMessage(chatId, "✅ Реквизиты обновлены.");
+    return;
+  }
+
+  // 10. /grant <telegram_id> <дни> — вручную выдать/продлить Pro (создание
+  //     подписки без оплаты, например бонусом или по договорённости).
+  if (/^\/grant\b/.test(text)) {
+    const parts = text.trim().split(/\s+/).slice(1);
+    const targetId = Number(parts[0]);
+    const days = Number(parts[1]) || 30;
+
+    if (!targetId || Number.isNaN(targetId)) {
+      await telegram.sendMessage(
+        chatId,
+        "Использование: <code>/grant telegram_id дни</code>\nПример: <code>/grant 123456789 30</code>"
+      );
+      return;
+    }
+
+    const { data: targetUser } = await supabase
+      .from("users")
+      .select("id, subscription_tier, subscription_expires_at")
+      .eq("telegram_id", targetId)
+      .maybeSingle();
+
+    if (!targetUser) {
+      await telegram.sendMessage(chatId, `❌ Пользователь с telegram_id ${targetId} не найден в базе.`);
+      return;
+    }
+
+    const now = Date.now();
+    const currentExpiry = targetUser.subscription_expires_at
+      ? new Date(targetUser.subscription_expires_at).getTime()
+      : 0;
+    // Если у пользователя уже активна такая же подписка — продлеваем от даты
+    // её окончания, а не от "сейчас", чтобы не обрезать уже оплаченный срок.
+    const sameTierStillActive = currentExpiry > now && targetUser.subscription_tier === "pro";
+    const base = sameTierStillActive ? currentExpiry : now;
+    const newExpiry = new Date(base + days * 86400000).toISOString();
+
+    await supabase
+      .from("users")
+      .update({ subscription_tier: "pro", subscription_expires_at: newExpiry })
+      .eq("id", targetUser.id);
+
+    await telegram.sendMessage(
+      chatId,
+      `✅ Подписка Pro выдана tg${targetId} на ${days} дн. (до ${new Date(newExpiry).toLocaleDateString("ru-RU")}).`
+    );
+
+    // Уведомляем самого пользователя — если он когда-либо писал боту /start,
+    // это сообщение дойдёт; если нет, Telegram молча вернёт ошибку, поэтому
+    // ловим её и не роняем обработку команды администратора.
+    await telegram
+      .sendMessage(targetId, `🎉 Администратор выдал вам подписку <b>Pro</b> на ${days} дней!`)
+      .catch(() => {});
+    return;
+  }
+
+  // 11. /revoke <telegram_id> — досрочно снять подписку (например, после
+  //     возврата оплаты или ошибочной выдачи через /grant).
+  if (/^\/revoke\b/.test(text)) {
+    const parts = text.trim().split(/\s+/).slice(1);
+    const targetId = Number(parts[0]);
+
+    if (!targetId || Number.isNaN(targetId)) {
+      await telegram.sendMessage(chatId, "Использование: <code>/revoke telegram_id</code>");
+      return;
+    }
+
+    const { data: targetUser } = await supabase
+      .from("users")
+      .select("id")
+      .eq("telegram_id", targetId)
+      .maybeSingle();
+
+    if (!targetUser) {
+      await telegram.sendMessage(chatId, `❌ Пользователь с telegram_id ${targetId} не найден.`);
+      return;
+    }
+
+    await supabase
+      .from("users")
+      .update({ subscription_tier: "free", subscription_expires_at: null })
+      .eq("id", targetUser.id);
+
+    await telegram.sendMessage(chatId, `✅ Подписка tg${targetId} снята.`);
+    return;
+  }
+
+  // 12. /broadcast <текст> — рассылка сообщения всем пользователям бота.
+  if (/^\/broadcast\b/.test(text)) {
+    const { text: value, entities } = stripCommandWithEntities(
+      text,
+      msg.entities as TelegramMessageEntity[] | undefined
+    );
+
+    if (!value.trim()) {
+      await telegram.sendMessage(
+        chatId,
+        "Использование: <code>/broadcast текст сообщения</code>\n" +
+          "Форматирование и эмодзи можно вставлять прямо в это сообщение.\n" +
+          "Сообщение уйдёт всем пользователям, у которых есть telegram_id в базе."
+      );
+      return;
+    }
+
+    const html = telegramEntitiesToHtml(value, entities);
+
+    const { data: allUsers } = await supabase
+      .from("users")
+      .select("telegram_id")
+      .not("telegram_id", "is", null);
+
+    const targets = (allUsers || []).map((u) => u.telegram_id).filter(Boolean) as number[];
+
+    if (targets.length === 0) {
+      await telegram.sendMessage(chatId, "В базе нет пользователей с telegram_id — рассылать некому.");
+      return;
+    }
+
+    await telegram.sendMessage(chatId, `📣 Рассылка начата: ${targets.length} получателей...`);
+
+    let sent = 0;
+    let failed = 0;
+
+    // Telegram ограничивает суммарную скорость исходящих сообщений бота
+    // (~30 в секунду по всем чатам), поэтому шлём небольшими пачками
+    // с паузой между ними, а не все разом.
+    const BATCH_SIZE = 20;
+    const DELAY_MS = 1000;
+
+    for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+      const batch = targets.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(batch.map((id) => telegram.sendMessage(id, html)));
+      results.forEach((r) => (r.status === "fulfilled" ? sent++ : failed++));
+
+      if (i + BATCH_SIZE < targets.length) {
+        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+      }
+    }
+
+    await telegram.sendMessage(
+      chatId,
+      `✅ Рассылка завершена.\nДоставлено: <b>${sent}</b>\nОшибок: <b>${failed}</b>` +
+        (failed > 0
+          ? "\n\n<i>Ошибки обычно означают, что пользователь заблокировал бота или ни разу не писал ему /start.</i>"
+          : "")
+    );
     return;
   }
 }
