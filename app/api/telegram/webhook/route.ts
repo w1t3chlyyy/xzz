@@ -19,14 +19,15 @@ function isAdmin(userId: number): boolean {
 
 const TIER_LABEL: Record<string, string> = { pro: "Pro" };
 
+// ⬇️ Ссылки на канал и поддержку задаются здесь, прямо в коде
+const CHANNEL_URL = "https://t.me/your_channel_name";      // ← замените на ваш канал
+const SUPPORT_URL = "https://t.me/your_support_username";  // ← замените на ваш support-аккаунт
+
 export async function GET() {
   return NextResponse.json({ ok: true, message: "Telegram webhook is alive" });
 }
 
 export async function POST(req: NextRequest) {
-  // Telegram подписывает запросы заголовком secret_token, если он был указан
-  // при вызове setWebhook. Без этой проверки любой в интернете мог бы слать
-  // сюда поддельные апдейты (в том числе поддельные "successful_payment").
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
   if (process.env.TELEGRAM_WEBHOOK_SECRET && secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -43,7 +44,6 @@ export async function POST(req: NextRequest) {
     } else if (update.callback_query) {
       await handleCallback(update.callback_query, supabase);
     } else if (update.pre_checkout_query) {
-      // Обязательно ответить в течение 10 секунд, иначе платёж Stars отменится.
       await telegram.answerPreCheckoutQuery(update.pre_checkout_query.id, true);
     }
   } catch (err) {
@@ -59,7 +59,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
   const text: string = msg.text || "";
   const caption: string = msg.caption || "";
 
-  // 1. Успешная оплата Telegram Stars
   if (msg.successful_payment) {
     let payload: { paymentId?: string } = {};
     try {
@@ -74,15 +73,11 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 2. Фото с подписью "/setwelcome ..." от админа — задать фото + текст приветствия.
-  //    Проверяем это ДО общей логики "фото = чек об оплате" ниже, чтобы админ
-  //    случайно не отправил свою картинку как подтверждение платежа.
   if (msg.photo && userId && isAdmin(userId) && /^\/setwelcome\b/.test(caption)) {
     await handleSetWelcomePhoto(msg, supabase);
     return;
   }
 
-  // 3. Фото = вероятный чек об оплате по реквизитам
   if (msg.photo && userId) {
     const { data: pending } = await supabase
       .from("payments")
@@ -126,16 +121,13 @@ async function handleMessage(msg: any, supabase: AdminClient) {
 
   if (!text) return;
 
-  // 4. /start
   if (/^\/start\b/.test(text)) {
     await sendWelcome(chatId, supabase);
     return;
   }
 
-  // Всё, что ниже — только для админов
   if (!userId || !isAdmin(userId)) return;
 
-  // 5. /admin — меню
   if (/^\/admin\b/.test(text)) {
     await telegram.sendMessage(
       chatId,
@@ -162,8 +154,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 6. /setwelcome <текст> — только текст, без фото (плюс сбрасывает ранее прикреплённое фото,
-  //    если оно было — команда описывает весь welcome-контент целиком).
   if (/^\/setwelcome\b/.test(text)) {
     const { text: value, entities } = stripCommandWithEntities(text, msg.entities as TelegramMessageEntity[] | undefined);
 
@@ -188,14 +178,12 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 7. /removewelcomephoto — убрать фото, оставить текст как есть
   if (/^\/removewelcomephoto\b/.test(text)) {
     await supabase.from("settings").update({ welcome_photo_file_id: null }).eq("id", 1);
     await telegram.sendMessage(chatId, "✅ Фото приветствия убрано.");
     return;
   }
 
-  // 8. /setprices <pro>
   if (/^\/setprices\b/.test(text)) {
     const value = Number(text.replace(/^\/setprices\b/, "").trim());
     if (Number.isNaN(value)) {
@@ -207,7 +195,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 9. /setrequisites <текст>
   if (/^\/setrequisites\b/.test(text)) {
     const value = text.replace(/^\/setrequisites\b/, "").trim();
     if (!value) {
@@ -222,8 +209,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 10. /grant <telegram_id> <дни> — вручную выдать/продлить Pro (создание
-  //     подписки без оплаты, например бонусом или по договорённости).
   if (/^\/grant\b/.test(text)) {
     const parts = text.trim().split(/\s+/).slice(1);
     const targetId = Number(parts[0]);
@@ -252,8 +237,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     const currentExpiry = targetUser.subscription_expires_at
       ? new Date(targetUser.subscription_expires_at).getTime()
       : 0;
-    // Если у пользователя уже активна такая же подписка — продлеваем от даты
-    // её окончания, а не от "сейчас", чтобы не обрезать уже оплаченный срок.
     const sameTierStillActive = currentExpiry > now && targetUser.subscription_tier === "pro";
     const base = sameTierStillActive ? currentExpiry : now;
     const newExpiry = new Date(base + days * 86400000).toISOString();
@@ -268,17 +251,12 @@ async function handleMessage(msg: any, supabase: AdminClient) {
       `✅ Подписка Pro выдана tg${targetId} на ${days} дн. (до ${new Date(newExpiry).toLocaleDateString("ru-RU")}).`
     );
 
-    // Уведомляем самого пользователя — если он когда-либо писал боту /start,
-    // это сообщение дойдёт; если нет, Telegram молча вернёт ошибку, поэтому
-    // ловим её и не роняем обработку команды администратора.
     await telegram
       .sendMessage(targetId, `🎉 Администратор выдал вам подписку <b>Pro</b> на ${days} дней!`)
       .catch(() => {});
     return;
   }
 
-  // 11. /revoke <telegram_id> — досрочно снять подписку (например, после
-  //     возврата оплаты или ошибочной выдачи через /grant).
   if (/^\/revoke\b/.test(text)) {
     const parts = text.trim().split(/\s+/).slice(1);
     const targetId = Number(parts[0]);
@@ -308,7 +286,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // 12. /broadcast <текст> — рассылка сообщения всем пользователям бота.
   if (/^\/broadcast\b/.test(text)) {
     const { text: value, entities } = stripCommandWithEntities(
       text,
@@ -344,9 +321,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     let sent = 0;
     let failed = 0;
 
-    // Telegram ограничивает суммарную скорость исходящих сообщений бота
-    // (~30 в секунду по всем чатам), поэтому шлём небольшими пачками
-    // с паузой между ними, а не все разом.
     const BATCH_SIZE = 20;
     const DELAY_MS = 1000;
 
@@ -371,7 +345,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
   }
 }
 
-// Задаёт фото + текст приветствия из сообщения "фото с подписью /setwelcome ...".
 async function handleSetWelcomePhoto(msg: any, supabase: AdminClient) {
   const chatId = msg.chat.id;
   const caption: string = msg.caption || "";
@@ -390,8 +363,6 @@ async function handleSetWelcomePhoto(msg: any, supabase: AdminClient) {
     return;
   }
 
-  // Берём фото в максимальном доступном разрешении — Telegram присылает
-  // массив вариантов размера, последний обычно самый крупный.
   const fileId = msg.photo[msg.photo.length - 1].file_id;
   const html = telegramEntitiesToHtml(value, entities);
 
@@ -403,8 +374,6 @@ async function handleSetWelcomePhoto(msg: any, supabase: AdminClient) {
   await telegram.sendMessage(chatId, "✅ Приветствие обновлено (текст + фото).");
 }
 
-// Отправляет приветственное сообщение пользователю на /start — с фото, если оно задано,
-// иначе обычным текстовым сообщением.
 async function sendWelcome(chatId: number | string, supabase: AdminClient) {
   const { data: settings } = await supabase
     .from("settings")
@@ -415,19 +384,30 @@ async function sendWelcome(chatId: number | string, supabase: AdminClient) {
     settings?.welcome_message ||
     `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`;
 
+  // ⬇️ Кнопки теперь используют константы, объявленные вверху файла
   const keyboard = {
-    inline_keyboard: [[{ text: "Открыть биржу", web_app: { url: process.env.NEXT_PUBLIC_SITE_URL } }]],
+    inline_keyboard: [
+      [{ text: "Открыть биржу", web_app: { url: process.env.NEXT_PUBLIC_SITE_URL } }],
+      [
+        { text: "Канал новостей", url: CHANNEL_URL },
+        { text: "Поддержка", url: SUPPORT_URL },
+      ],
+    ],
   };
 
   if (settings?.welcome_photo_file_id) {
-    // У caption в sendPhoto лимит 1024 символа (у обычного text в sendMessage — 4096).
-    // Если текст длиннее, Telegram отклонит запрос — тогда лучше укоротить welcome_message
-    // или убрать фото через /removewelcomephoto.
-    await telegram.sendPhoto(chatId, settings.welcome_photo_file_id, {
+    const result: any = await telegram.sendPhoto(chatId, settings.welcome_photo_file_id, {
       caption: welcomeText,
       reply_markup: keyboard,
     });
-    return;
+
+    if (result?.ok) return;
+
+    console.warn(
+      "sendWelcome: invalid welcome_photo_file_id, clearing and falling back to text:",
+      result?.description
+    );
+    await supabase.from("settings").update({ welcome_photo_file_id: null }).eq("id", 1);
   }
 
   await telegram.sendMessage(chatId, welcomeText, { reply_markup: keyboard });
@@ -530,14 +510,6 @@ async function handleCallback(cq: any, supabase: AdminClient) {
   await telegram.answerCallbackQuery(cq.id);
 }
 
-// Общая точка выдачи подписки внутри этого файла — используется и админом
-// (ручное подтверждение), и обработчиком successful_payment для Stars.
-// ВАЖНО: это единственное место в файле, где subscription_tier/expires_at
-// меняются, и вызывается оно только из серверного кода с service_role.
-// Функция намеренно НЕ экспортируется: route.ts в App Router разрешает
-// экспортировать только GET/POST/... — любой другой export ломает сборку
-// ("is not a valid Route export field"). Логика для CryptoBot-вебхука
-// продублирована в app/api/payments/webhook/route.ts самостоятельно.
 async function confirmPayment(supabase: AdminClient, paymentId: string, adminId?: number) {
   const { data: payment } = await supabase.from("payments").select("*").eq("id", paymentId).single();
   if (!payment || payment.status === "paid") return;
