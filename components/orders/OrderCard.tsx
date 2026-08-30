@@ -169,7 +169,7 @@ export function OrderCard(props: OrderCardProps) {
         </span>
 
         {tgUrl && (
-          
+          <a
             href={tgUrl}
             target="_blank"
             rel="noopener noreferrer"
