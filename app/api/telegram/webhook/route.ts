@@ -20,9 +20,10 @@ function isAdmin(userId: number): boolean {
 
 const TIER_LABEL: Record<string, string> = { pro: "Pro" };
 
-// ⬇️ Ссылки на канал и поддержку задаются здесь, прямо в коде
+// ⬇️ Ссылки на канал, поддержку и Mini App
 const CHANNEL_URL = "https://t.me/F1337C";      // ← замените на ваш канал
 const SUPPORT_URL = "https://t.me/F1337H";  // ← замените на ваш support-аккаунт
+const MINI_APP_DIRECT_URL = "https://t.me/F1337Bot/app";
 
 export async function GET() {
   return NextResponse.json({ ok: true, message: "Telegram webhook is alive" });
@@ -388,7 +389,7 @@ async function sendWelcome(chatId: number | string, supabase: AdminClient) {
   // ⬇️ Кнопки теперь используют константы, объявленные вверху файла
   const keyboard = {
     inline_keyboard: [
-      [{ text: "Открыть биржу", web_app: { url: process.env.NEXT_PUBLIC_SITE_URL } }],
+      [{ text: "Открыть биржу", url: MINI_APP_DIRECT_URL }],
       [
         { text: "Канал новостей", url: CHANNEL_URL },
         { text: "Поддержка", url: SUPPORT_URL },
