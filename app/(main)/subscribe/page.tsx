@@ -150,7 +150,12 @@ export default function SubscribePage() {
 
       const data = await res.json();
       if (!res.ok) {
-        setPromoMessage({ text: data.error || "Не удалось создать платёж", type: "error" });
+        // ВРЕМЕННАЯ ДИАГНОСТИКА: показываем debug-объект прямо в UI, чтобы
+        // можно было прочитать причину ошибки на телефоне, без DevTools.
+        // Уберите строку с JSON.stringify(data.debug) после того, как
+        // разберётесь с причиной — не стоит показывать это в проде.
+        const debugText = data.debug ? `\n\nDEBUG: ${JSON.stringify(data.debug)}` : "";
+        setPromoMessage({ text: (data.error || "Не удалось создать платёж") + debugText, type: "error" });
         return;
       }
 
@@ -496,14 +501,14 @@ export default function SubscribePage() {
 
         {promoMessage && (
           <p
-            className={`text-xs font-medium px-1 flex items-center gap-1.5 ${
+            className={`text-xs font-medium px-1 flex items-start gap-1.5 whitespace-pre-wrap break-words ${
               promoMessage.type === "success" ? "text-emerald-600" : "text-rose-600"
             }`}
           >
             {promoMessage.type === "success" ? (
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             ) : (
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             )}
             <span>{promoMessage.text}</span>
           </p>
