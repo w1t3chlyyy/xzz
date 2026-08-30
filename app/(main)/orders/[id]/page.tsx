@@ -94,8 +94,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           *,
           client:client_id (
             first_name,
-            username,
-            rating
+            username
           )
         `)
         .eq('id', params.id)
@@ -111,8 +110,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           *,
           executor:executor_id (
             first_name,
-            username,
-            rating
+            username
           )
         `)
         .eq('order_id', params.id)
