@@ -78,6 +78,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [responseMessage, setResponseMessage] = useState('');
   const [responseBudget, setResponseBudget] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const loadUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -140,13 +141,20 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     if (!responseMessage.trim()) return;
 
     setSubmitting(true);
+    setSubmitError(null);
     try {
+      // ВАЖНО: раньше сюда передавался client_id, а такой колонки в таблице
+      // responses нет вообще — insert всегда падал с ошибкой Postgres
+      // "column responses.client_id does not exist", и отклик никогда не
+      // сохранялся. Клиент заказа и так виден через order_id -> orders.client_id
+      // (см. RLS-политику "Clients can view responses to their orders"),
+      // отдельно хранить его здесь не нужно. Колонка budget добавлена
+      // миграцией 004_fix_responses_budget_column.sql.
       const { error } = await supabase
         .from('responses')
         .insert({
           order_id: order.id,
           executor_id: user.id,
-          client_id: order.client_id,
           message: responseMessage,
           budget: parseInt(responseBudget) || order.budget_min || 0,
           status: 'pending'
@@ -159,8 +167,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       setShowResponseForm(false);
       setResponseMessage('');
       setResponseBudget('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error submitting response:', error);
+      setSubmitError(error?.message || 'Не удалось отправить отклик, попробуйте ещё раз');
     } finally {
       setSubmitting(false);
     }
@@ -378,6 +387,12 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               onSubmit={handleSubmitResponse}
               className="bg-purple-50/70 border border-purple-200 rounded-2xl p-4 space-y-3 overflow-hidden"
             >
+              {submitError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl p-2.5">
+                  {submitError}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-900 mb-1">
                   Ваше предложение *
