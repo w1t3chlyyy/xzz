@@ -37,6 +37,11 @@ export default function HomePage() {
   const [selectedNiche, setSelectedNiche] = useState<string | null>(null);
   const [tgUser, setTgUser] = useState<ExtractedTelegramUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Пока не выяснили, есть ли у пользователя уже сохранённая роль (локально
+  // или на сервере), держим экран в состоянии "проверяем" и НЕ показываем
+  // форму опроса — иначе она будет на долю секунды мелькать при каждом входе,
+  // а если сеть подведёт — может остаться насовсем.
+  const [isCheckingRole, setIsCheckingRole] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -46,6 +51,16 @@ export default function HomePage() {
     const user = getTelegramUser();
     if (user) setTgUser(user);
 
+    // 1. Роль уже выбиралась раньше на этом устройстве — сразу уходим в
+    //    ленту заказов, опрос повторно не показываем.
+    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role");
+    if (savedRole === "client" || savedRole === "executor") {
+      router.replace("/feed");
+      return;
+    }
+
+    // 2. Локально роли нет (например, новое устройство / очищенный кэш) —
+    //    спрашиваем сервер: вдруг роль уже была задана раньше через Telegram.
     const initData = getTelegramInitData();
     if (initData) {
       fetch("/api/auth/telegram", {
@@ -56,19 +71,26 @@ export default function HomePage() {
         .then((res) => res.json())
         .then((data) => {
           if (data.role && (data.role === "client" || data.role === "executor")) {
-            setSelectedRole(data.role);
+            // Роль уже известна серверу — сохраняем локально и сразу
+            // открываем ленту, минуя опрос.
             localStorage.setItem("fiolet_role", data.role);
             localStorage.setItem("1337_role", data.role);
+            router.replace("/feed");
+            return;
           }
+          // Роли действительно ещё нет нигде — только тогда показываем опрос.
+          setIsCheckingRole(false);
         })
-        .catch((e) => console.warn("TG auto-auth notice:", e));
+        .catch((e) => {
+          console.warn("TG auto-auth notice:", e);
+          setIsCheckingRole(false);
+        });
+    } else {
+      // Нет Telegram initData (например, открыли не из Telegram) — сразу
+      // показываем опрос, спрашивать сервер не о чем.
+      setIsCheckingRole(false);
     }
-
-    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role");
-    if (savedRole === "client" || savedRole === "executor") {
-      setSelectedRole(savedRole as "client" | "executor");
-    }
-  }, []);
+  }, [router]);
 
   const finalizeSelection = async (role: "client" | "executor", niche: string | null) => {
     setIsLoading(true);
@@ -122,6 +144,15 @@ export default function HomePage() {
 
   const canContinue =
     step === 1 ? !!selectedRole : !!selectedNiche;
+
+  // Нейтральный лоадер на время проверки роли — без мигания форм опроса.
+  if (isCheckingRole) {
+    return (
+      <div className="min-h-screen bg-[#F4F3FA] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-violet-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F4F3FA] flex flex-col justify-between p-5 max-w-md mx-auto text-slate-900 font-sans selection:bg-purple-200">
