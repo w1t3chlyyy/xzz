@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { getTelegramUser } from "@/lib/telegram/webapp";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   Calendar,
@@ -58,7 +59,7 @@ interface Response {
   id: string;
   message: string;
   budget: number;
-  status: 'pending' | 'accepted' | 'rejected';
+  status: "pending" | "accepted" | "rejected";
   created_at: string;
   executor: {
     first_name: string;
@@ -67,13 +68,17 @@ interface Response {
   };
 }
 
-// Тот же ключ, что использует components/orders/OrderCard.tsx — благодаря
-// этому "сохранено" в ленте и на странице заказа не расходится.
 const BOOKMARKS_KEY = "1337_bookmarked_orders";
-
-// Чат поддержки бота (см. app/api/telegram/webhook/route.ts, SUPPORT_URL) —
-// используется как адресат жалобы на заказ.
 const SUPPORT_URL = "https://t.me/F1337H";
+
+function readBookmarks(): string[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function OrderDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -81,11 +86,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [order, setOrder] = useState<Order | null>(null);
   const [responses, setResponses] = useState<Response[]>([]);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string>('client');
+  const [role, setRole] = useState<string>("client");
   const [user, setUser] = useState<any>(null);
   const [showResponseForm, setShowResponseForm] = useState(false);
-  const [responseMessage, setResponseMessage] = useState('');
-  const [responseBudget, setResponseBudget] = useState('');
+  const [responseMessage, setResponseMessage] = useState("");
+  const [responseBudget, setResponseBudget] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -94,7 +99,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [responseActionError, setResponseActionError] = useState<string | null>(null);
 
   const loadUser = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     setUser(user);
   }, [supabase]);
 
@@ -102,38 +109,40 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     setLoading(true);
     try {
       const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .select(`
+        .from("orders")
+        .select(
+          `
           *,
           client:client_id (
             first_name,
             username
           )
-        `)
-        .eq('id', params.id)
+        `
+        )
+        .eq("id", params.id)
         .single();
 
       if (orderError) throw orderError;
       setOrder(orderData);
 
-      // Загружаем отклики
       const { data: responsesData, error: responsesError } = await supabase
-        .from('responses')
-        .select(`
+        .from("responses")
+        .select(
+          `
           *,
           executor:executor_id (
             first_name,
             username
           )
-        `)
-        .eq('order_id', params.id)
-        .order('created_at', { ascending: false });
+        `
+        )
+        .eq("order_id", params.id)
+        .order("created_at", { ascending: false });
 
       if (responsesError) throw responsesError;
       setResponses(responsesData || []);
-
     } catch (error) {
-      console.error('Error loading order:', error);
+      console.error("Error loading order:", error);
     } finally {
       setLoading(false);
     }
@@ -144,38 +153,31 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     setRole(savedRole);
     loadOrder();
     loadUser();
-
-    try {
-      const saved = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]");
-      setIsBookmarked(Array.isArray(saved) && saved.includes(params.id));
-    } catch {
-      // ignore
-    }
+    setIsBookmarked(readBookmarks().includes(params.id));
   }, [loadOrder, loadUser, params.id]);
 
   const handleToggleBookmark = () => {
+    const saved = readBookmarks();
+    const next = isBookmarked ? saved.filter((id) => id !== params.id) : [...saved, params.id];
     try {
-      const saved: string[] = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]");
-      const next = isBookmarked ? saved.filter((id) => id !== params.id) : [...saved, params.id];
       localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(next));
-    } catch {
-      // localStorage недоступен — состояние всё равно переключаем визуально
+    } catch (e) {
+      console.warn("Bookmark save failed:", e);
     }
-    setIsBookmarked((prev) => !prev);
+    setIsBookmarked(!isBookmarked);
   };
 
   const handleShare = async () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
-    const shareData = { title: order?.title || "Заказ на бирже 1337", url };
+    const shareApi = typeof navigator !== "undefined" ? (navigator as any).share : null;
 
-    try {
-      if (typeof navigator !== "undefined" && (navigator as any).share) {
-        await (navigator as any).share(shareData);
+    if (shareApi) {
+      try {
+        await shareApi({ title: order?.title || "Заказ на бирже 1337", url });
+        return;
+      } catch (e) {
         return;
       }
-    } catch {
-      // пользователь закрыл системное окно "Поделиться" — не показываем ошибку
-      return;
     }
 
     try {
@@ -188,30 +190,23 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   };
 
   const handleReport = () => {
-    const text = encodeURIComponent(
-      `Жалоба на заказ «${order?.title || "без названия"}» (ID: ${params.id})`
-    );
-    window.open(`${SUPPORT_URL}?text=${text}`, "_blank", "noopener,noreferrer");
+    const reportText = "Жалоба на заказ: " + (order?.title || "без названия") + " (ID: " + params.id + ")";
+    const url = SUPPORT_URL + "?text=" + encodeURIComponent(reportText);
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const handleUpdateResponseStatus = async (responseId: string, status: 'accepted' | 'rejected') => {
+  const handleUpdateResponseStatus = async (responseId: string, status: "accepted" | "rejected") => {
     setResponseActionError(null);
     const previous = responses;
     setResponses((prev) => prev.map((r) => (r.id === responseId ? { ...r, status } : r)));
 
     try {
-      // RLS-политика "Clients can update response status" разрешает это
-      // только владельцу заказа — дополнительной проверки на клиенте не нужно.
-      const { error } = await supabase
-        .from('responses')
-        .update({ status })
-        .eq('id', responseId);
-
+      const { error } = await supabase.from("responses").update({ status }).eq("id", responseId);
       if (error) throw error;
     } catch (error) {
-      console.error('Error updating response status:', error);
+      console.error("Error updating response status:", error);
       setResponses(previous);
-      setResponseActionError('Не удалось обновить статус отклика, попробуйте ещё раз');
+      setResponseActionError("Не удалось обновить статус отклика, попробуйте ещё раз");
     }
   };
 
@@ -223,25 +218,23 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const { error } = await supabase
-        .from('responses')
-        .insert({
-          order_id: order.id,
-          executor_id: user.id,
-          message: responseMessage,
-          budget: parseInt(responseBudget) || order.budget_min || 0,
-          status: 'pending'
-        });
+      const { error } = await supabase.from("responses").insert({
+        order_id: order.id,
+        executor_id: user.id,
+        message: responseMessage,
+        budget: parseInt(responseBudget) || order.budget_min || 0,
+        status: "pending",
+      });
 
       if (error) throw error;
 
       await loadOrder();
       setShowResponseForm(false);
-      setResponseMessage('');
-      setResponseBudget('');
+      setResponseMessage("");
+      setResponseBudget("");
     } catch (error: any) {
-      console.error('Error submitting response:', error);
-      setSubmitError(error?.message || 'Не удалось отправить отклик, попробуйте ещё раз');
+      console.error("Error submitting response:", error);
+      setSubmitError(error?.message || "Не удалось отправить отклик, попробуйте ещё раз");
     } finally {
       setSubmitting(false);
     }
@@ -249,25 +242,25 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'closed':
-        return 'bg-slate-50 text-slate-700 border-slate-200';
-      case 'cancelled':
-        return 'bg-red-50 text-red-700 border-red-200';
+      case "active":
+        return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      case "closed":
+        return "bg-slate-50 text-slate-700 border-slate-200";
+      case "cancelled":
+        return "bg-red-50 text-red-700 border-red-200";
       default:
-        return 'bg-amber-50 text-amber-700 border-amber-200';
+        return "bg-amber-50 text-amber-700 border-amber-200";
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'active':
-        return 'Активный';
-      case 'closed':
-        return 'Закрыт';
-      case 'cancelled':
-        return 'Отменен';
+      case "active":
+        return "Активный";
+      case "closed":
+        return "Закрыт";
+      case "cancelled":
+        return "Отменен";
       default:
         return status;
     }
@@ -298,18 +291,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     );
   }
 
-  // Прямой контакт с заказчиком в Telegram — если у него нет username,
-  // диплинк построить нельзя, показываем заглушку вместо мёртвой кнопки.
-  const clientUsername = order.client?.username?.replace(/^@/, '') || '';
+  const clientUsername = (order.client?.username || "").replace(/^@/, "");
+  const clientTgMessage = "Здравствуйте! Пишу по поводу заказа " + order.title + " на бирже 1337.";
   const clientTgUrl = clientUsername
-    ? `https://t.me/${clientUsername}?text=${encodeURIComponent(
-        `Здравствуйте! Пишу по поводу заказа «${order.title}» на бирже 1337.`
-      )}`
+    ? "https://t.me/" + clientUsername + "?text=" + encodeURIComponent(clientTgMessage)
     : null;
 
   return (
     <div className="space-y-3 pb-20">
-      {/* Navigation */}
       <div className="flex items-center justify-between">
         <Link href="/feed">
           <motion.button
@@ -319,19 +308,20 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             <ArrowLeft className="w-4 h-4" />
           </motion.button>
         </Link>
+
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleToggleBookmark}
-            title={isBookmarked ? "Убрать из сохранённых" : "Сохранить заказ"}
-            className={`p-2 rounded-xl border transition-colors ${
-              isBookmarked
-                ? "bg-violet-600 border-violet-600 text-white"
-                : "bg-white border-slate-200 hover:border-violet-300"
-            }`}
+            title="Сохранить заказ"
+            className={cn(
+              "p-2 rounded-xl border transition-colors",
+              isBookmarked ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-slate-200 hover:border-violet-300"
+            )}
           >
-            <Bookmark className={`w-4 h-4 ${isBookmarked ? "fill-white" : "text-slate-500"}`} />
+            <Bookmark className={cn("w-4 h-4", isBookmarked ? "fill-white" : "text-slate-500")} />
           </button>
+
           <div className="relative">
             <button
               type="button"
@@ -341,8 +331,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             >
               <Share2 className="w-4 h-4 text-slate-500" />
             </button>
+
             <AnimatePresence>
-              {shareCopied && (
+              {shareCopied ? (
                 <motion.span
                   initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -351,9 +342,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 >
                   Ссылка скопирована
                 </motion.span>
-              )}
+              ) : null}
             </AnimatePresence>
           </div>
+
           <button
             type="button"
             onClick={handleReport}
@@ -365,7 +357,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </div>
       </div>
 
-      {/* Order Details */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -374,10 +365,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-extrabold text-slate-900 break-words">
-                {order.title}
-              </h1>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${getStatusColor(order.status)}`}>
+              <h1 className="text-lg font-extrabold text-slate-900 break-words">{order.title}</h1>
+              <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0", getStatusColor(order.status))}>
                 {getStatusText(order.status)}
               </span>
             </div>
@@ -388,7 +377,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               </span>
               <span className="flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5" />
-                <span>{new Date(order.created_at).toLocaleDateString('ru-RU')}</span>
+                <span>{new Date(order.created_at).toLocaleDateString("ru-RU")}</span>
               </span>
             </div>
           </div>
@@ -397,31 +386,27 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             <div className="text-sm font-extrabold text-violet-700">
               {order.budget_min?.toLocaleString()} - {order.budget_max?.toLocaleString()} ₽
             </div>
-            <div className="text-[10px] text-slate-400 font-medium">
-              Бюджет
-            </div>
+            <div className="text-[10px] text-slate-400 font-medium">Бюджет</div>
           </div>
         </div>
 
-        {/* Client Info */}
         <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100">
           <div className="w-10 h-10 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold shrink-0">
-            {order.client?.first_name?.[0] || 'А'}
+            {order.client?.first_name?.[0] || "А"}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-extrabold text-slate-900 truncate">
-                {order.client?.first_name || 'Заказчик'}
-              </span>
-              {order.client?.rating && (
+              <span className="text-sm font-extrabold text-slate-900 truncate">{order.client?.first_name || "Заказчик"}</span>
+              {order.client?.rating ? (
                 <span className="flex items-center gap-0.5 text-xs shrink-0">
                   <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                   <span className="font-bold text-slate-900">{order.client.rating}</span>
                 </span>
-              )}
+              ) : null}
             </div>
-            <p className="text-xs text-slate-400 font-medium truncate">@{order.client?.username || 'client'}</p>
+            <p className="text-xs text-slate-400 font-medium truncate">@{order.client?.username || "client"}</p>
           </div>
+
           {clientTgUrl ? (
             
               href={clientTgUrl}
@@ -439,41 +424,36 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           )}
         </div>
 
-        {/* Description */}
         <div>
           <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5 mb-2">
             <FileText className="w-4 h-4 text-violet-600" />
             Описание задачи
           </h2>
           <div className="bg-slate-50 rounded-2xl p-3.5 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap border border-slate-100 max-h-72 overflow-y-auto">
-            {order.description || 'Описание отсутствует'}
+            {order.description || "Описание отсутствует"}
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-2 pt-2">
           <div className="text-center p-2.5 rounded-xl bg-purple-50 border border-purple-100">
-            <div className="text-xs font-extrabold text-violet-700">
-              {responses.length}
-            </div>
+            <div className="text-xs font-extrabold text-violet-700">{responses.length}</div>
             <div className="text-[10px] text-slate-500 font-medium">Откликов</div>
           </div>
           <div className="text-center p-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
             <div className="text-xs font-extrabold text-emerald-700">
-              {responses.filter(r => r.status === 'accepted').length}
+              {responses.filter((r) => r.status === "accepted").length}
             </div>
             <div className="text-[10px] text-slate-500 font-medium">Принято</div>
           </div>
           <div className="text-center p-2.5 rounded-xl bg-amber-50 border border-amber-100">
             <div className="text-xs font-extrabold text-amber-700">
-              {responses.filter(r => r.status === 'pending').length}
+              {responses.filter((r) => r.status === "pending").length}
             </div>
             <div className="text-[10px] text-slate-500 font-medium">Ожидают</div>
           </div>
         </div>
       </motion.div>
 
-      {/* Responses Section */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -486,12 +466,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               <Users className="w-4 h-4 text-violet-600" />
               Отклики ({responses.length})
             </h2>
-            <p className="text-slate-400 text-[11px] font-medium mt-0.5">
-              Исполнители, заинтересованные в задаче
-            </p>
+            <p className="text-slate-400 text-[11px] font-medium mt-0.5">Исполнители, заинтересованные в задаче</p>
           </div>
 
-          {role === 'executor' && order.status === 'active' && (
+          {role === "executor" && order.status === "active" ? (
             <button
               onClick={() => setShowResponseForm(!showResponseForm)}
               className="btn-primary text-xs font-extrabold py-2 px-3 rounded-xl flex items-center gap-1 shadow-violet"
@@ -499,35 +477,32 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               <Plus className="w-3.5 h-3.5" />
               <span>Откликнуться</span>
             </button>
-          )}
+          ) : null}
         </div>
 
-        {responseActionError && (
+        {responseActionError ? (
           <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl p-2.5">
             {responseActionError}
           </div>
-        )}
+        ) : null}
 
-        {/* Response Form */}
         <AnimatePresence>
-          {showResponseForm && (
+          {showResponseForm ? (
             <motion.form
               initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
+              animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               onSubmit={handleSubmitResponse}
               className="bg-purple-50/70 border border-purple-200 rounded-2xl p-4 space-y-3 overflow-hidden"
             >
-              {submitError && (
+              {submitError ? (
                 <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl p-2.5">
                   {submitError}
                 </div>
-              )}
+              ) : null}
 
               <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1">
-                  Ваше предложение *
-                </label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Ваше предложение *</label>
                 <textarea
                   value={responseMessage}
                   onChange={(e) => setResponseMessage(e.target.value)}
@@ -539,14 +514,12 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1">
-                  Ваш бюджет (₽)
-                </label>
+                <label className="block text-xs font-bold text-slate-900 mb-1">Ваш бюджет (₽)</label>
                 <input
                   type="number"
                   value={responseBudget}
                   onChange={(e) => setResponseBudget(e.target.value)}
-                  placeholder={order.budget_min?.toString() || '0'}
+                  placeholder={order.budget_min?.toString() || "0"}
                   className="w-full p-2.5 rounded-xl bg-white border border-purple-200 text-slate-900 text-xs font-medium focus:border-violet-600 focus:outline-none"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
@@ -560,11 +533,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   disabled={submitting}
                   className="flex-1 btn-primary py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-violet disabled:opacity-50"
                 >
-                  {submitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   <span>Отправить отклик</span>
                 </button>
                 <button
@@ -576,24 +545,19 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 </button>
               </div>
             </motion.form>
-          )}
+          ) : null}
         </AnimatePresence>
 
-        {/* Responses List */}
         <div className="space-y-3">
           {responses.length === 0 ? (
             <div className="text-center py-6">
               <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center mx-auto mb-2">
                 <Users className="w-6 h-6" />
               </div>
-              <p className="text-xs text-slate-500 font-medium">
-                Пока нет откликов
-              </p>
-              {role === 'executor' && (
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Станьте первым, кто откликнется!
-                </p>
-              )}
+              <p className="text-xs text-slate-500 font-medium">Пока нет откликов</p>
+              {role === "executor" ? (
+                <p className="text-[11px] text-slate-400 mt-0.5">Станьте первым, кто откликнется!</p>
+              ) : null}
             </div>
           ) : (
             responses.map((response, index) => (
@@ -607,19 +571,81 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-9 h-9 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold text-sm shrink-0">
-                      {response.executor?.first_name?.[0] || 'И'}
+                      {response.executor?.first_name?.[0] || "И"}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-extrabold text-slate-900 truncate">
-                          {response.executor?.first_name || 'Исполнитель'}
+                          {response.executor?.first_name || "Исполнитель"}
                         </span>
-                        {response.executor?.rating && (
+                        {response.executor?.rating ? (
                           <span className="flex items-center gap-0.5 text-[11px] shrink-0">
                             <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                             <span className="font-bold text-slate-900">{response.executor.rating}</span>
                           </span>
-                        )}
+                        ) : null}
                       </div>
                       <p className="text-[11px] text-slate-400 font-medium truncate">
-                        @{response.executor?.username || 'executor'}
+                        @{response.executor?.username || "executor"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-extrabold text-violet-700">{response.budget?.toLocaleString()} ₽</div>
+                    <span
+                      className={cn(
+                        "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+                        response.status === "accepted"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : response.status === "rejected"
+                          ? "bg-red-50 text-red-700 border-red-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200"
+                      )}
+                    >
+                      {response.status === "accepted" ? "Принят" : response.status === "rejected" ? "Отклонен" : "На рассмотрении"}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">{response.message}</p>
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {new Date(response.created_at).toLocaleDateString("ru-RU", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+
+                  {role === "client" && response.status === "pending" ? (
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateResponseStatus(response.id, "accepted")}
+                        className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors"
+                        title="Принять"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateResponseStatus(response.id, "rejected")}
+                        className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 transition-colors"
+                        title="Отклонить"
+                      >
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </motion.div>
+            ))
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
