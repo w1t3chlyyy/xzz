@@ -55,7 +55,8 @@ export default function ResponsesPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        router.push('/auth/signin');
+        // Если пользователь не авторизован через Supabase, не редиректим на несуществующую страницу
+        setLoading(false);
         return;
       }
 
