@@ -37,7 +37,9 @@ import {
   Sparkles,
   ExternalLink,
   ChevronRight,
-  Trash2
+  Trash2,
+  Info,
+  CheckCheck
 } from "lucide-react";
 import Link from "next/link";
 
@@ -83,15 +85,15 @@ const SUPPORT_URL = "https://t.me/F1337H";
 const AI_RESPONSE_TEMPLATES = [
   {
     title: "⚡️ Быстрый старт",
-    text: "Здравствуйте! Готов приступить к выполнению задания сегодня. Имею более 3 лет опыта по данному направлению. Сделаю качественно и в срок.",
+    text: "Здравствуйте! Готов приступить к выполнению задания сегодня. Имею опыт более 3 лет в данном стеке. Сделаю качественно и в срок.",
   },
   {
     title: "🎯 Подробный стек",
-    text: "Приветствую! Ознакомился с вашим ТЗ — задача понятна. Предлагаю современное решение со всеми требованиями. Готов обсудить детали в Telegram.",
+    text: "Приветствую! Ознакомился с вашим ТЗ — задача понятна. Предлагаю надежное и быстрое решение. Готов обсудить детали в Telegram.",
   },
   {
     title: "💼 Есть кейсы",
-    text: "Добрый день! Уже реализовывал похожие проекты, кейсы и отзывы есть в моем профиле. Предлагаю списаться в TG для уточнения деталей.",
+    text: "Добрый день! Уже реализовывал похожие проекты, кейсы и отзывы есть в моем профиле. Предлагаю списаться в TG для уточнения нюансов.",
   },
 ];
 
@@ -110,11 +112,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [order, setOrder] = useState<Order | null>(null);
   const [responses, setResponses] = useState<Response[]>([]);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string>("client");
+  const [role, setRole] = useState<"client" | "executor">("client");
   const [user, setUser] = useState<any>(null);
   const [tgUser, setTgUser] = useState<any>(null);
 
-  // Response Form State
+  // Response Form State (for executors)
   const [showResponseForm, setShowResponseForm] = useState(false);
   const [responseMessage, setResponseMessage] = useState("");
   const [responseBudget, setResponseBudget] = useState("");
@@ -145,7 +147,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const loadOrder = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Пытаемся загрузить из Supabase
+      // 1. Загружаем заказ из Supabase
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
         .select(
@@ -161,7 +163,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         .single();
 
       if (orderError || !orderData) {
-        // Проверяем fallback в локальном кэше
+        // Fallback: ищем в локальном кэше
         const cached = getCachedClientOrders<Order>();
         const localFound = cached.find((o) => o.id === params.id);
         if (localFound) {
@@ -188,7 +190,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         .eq("order_id", params.id)
         .order("created_at", { ascending: false });
 
-      // Объединяем с локально сохраненными откликами (для мгновенности)
+      // Подмешиваем локальные отклики
       let localResponses: Response[] = [];
       try {
         const localKey = "1337_order_responses_" + params.id;
@@ -201,7 +203,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       }
 
       const merged = [...(responsesData || [])];
-      // Добавляем локальные, которых нет в Supabase
       for (const lr of localResponses) {
         if (!merged.some((m) => m.id === lr.id)) {
           merged.push(lr);
@@ -217,14 +218,14 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   }, [supabase, params.id]);
 
   useEffect(() => {
-    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
+    const savedRole = (localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client") as "client" | "executor";
     setRole(savedRole);
     loadOrder();
     loadUser();
     setIsBookmarked(readBookmarks().includes(params.id));
   }, [loadOrder, loadUser, params.id]);
 
-  // Устанавливаем рекомендованный бюджет по умолчанию
+  // Предзаполняем бюджет отклика
   useEffect(() => {
     if (order && !responseBudget) {
       setResponseBudget(order.budget_min ? order.budget_min.toString() : "25000");
@@ -282,6 +283,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  // Действие заказчика: принять/отклонить отклик исполнителя
   const handleUpdateResponseStatus = async (responseId: string, status: "accepted" | "rejected") => {
     setResponseActionError(null);
     const previous = responses;
@@ -292,7 +294,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       if (error) throw error;
     } catch (error) {
       console.error("Error updating response status:", error);
-      // Если это локальный отклик, обновляем в localStorage
       try {
         const localKey = "1337_order_responses_" + params.id;
         const saved: Response[] = JSON.parse(localStorage.getItem(localKey) || "[]");
@@ -305,10 +306,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     }
   };
 
+  // Действие исполнителя: отозвать свой отклик
   const handleDeleteMyResponse = async (responseId: string) => {
     try {
       await supabase.from("responses").delete().eq("id", responseId);
-      // Чистим локальный кэш
       const localKey = "1337_order_responses_" + params.id;
       const saved: Response[] = JSON.parse(localStorage.getItem(localKey) || "[]");
       const filtered = saved.filter((r) => r.id !== responseId);
@@ -320,6 +321,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     }
   };
 
+  // Действие исполнителя: отправить отклик
   const handleSubmitResponse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!order) return;
@@ -340,7 +342,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       let insertedResponse: Response | null = null;
 
       if (user) {
-        // Убеждаемся, что в users есть контактные данные исполнителя
         try {
           await supabase
             .from("users")
@@ -384,7 +385,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         }
       }
 
-      // Если не авторизован или офлайн, формируем локальный отклик
       if (!insertedResponse) {
         insertedResponse = {
           id: "resp-" + Date.now(),
@@ -402,13 +402,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         };
       }
 
-      // Сохраняем в локальный кэш
       try {
         const localKey = "1337_order_responses_" + params.id;
         const saved: Response[] = JSON.parse(localStorage.getItem(localKey) || "[]");
         localStorage.setItem(localKey, JSON.stringify([insertedResponse, ...saved]));
 
-        // Также сохраняем в общий список моих откликов для страницы /responses
         const allMyKey = "1337_my_all_responses";
         const myAll: any[] = JSON.parse(localStorage.getItem(allMyKey) || "[]");
         const orderSummary = {
@@ -423,7 +421,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         console.warn("Failed to write to localStorage:", lErr);
       }
 
-      // Добавляем в стейт
       setResponses((prev) => [insertedResponse!, ...prev]);
       setSubmitSuccess(true);
       setShowResponseForm(false);
@@ -491,15 +488,20 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     );
   }
 
+  // Определение контекста пользователя и роли:
+  const isOwner = Boolean(user?.id && order.client_id === user.id) || (role === "client" && !user?.id);
+  const isClientRole = role === "client" || isOwner;
+  const isExecutorRole = role === "executor" && !isOwner;
+
   // Контактные данные заказчика
   const clientUsername = (order.client?.username || "").replace(/^@/, "");
-  const clientDisplayName = order.client?.first_name || "Заказчик";
+  const clientDisplayName = isOwner ? "Вы (Заказчик)" : order.client?.first_name || "Заказчик";
   const clientTgMessage = `Здравствуйте! Пишу по поводу заказа "${order.title}" на бирже 1337. Хочу обсудить детали!`;
   const clientTgUrl = clientUsername
     ? `https://t.me/${clientUsername}?text=${encodeURIComponent(clientTgMessage)}`
     : null;
 
-  // Проверка: откликнулся ли уже текущий пользователь?
+  // Проверка отклика текущего исполнителя
   const currentTgUsername = (tgUser?.username || "").replace(/^@/, "");
   const myResponse = responses.find(
     (r) =>
@@ -507,10 +509,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       (currentTgUsername && r.executor?.username === currentTgUsername)
   );
 
-  const isOwner = user?.id && order.client_id === user.id;
-
   return (
-    <div className="space-y-3.5 pb-28 text-slate-900 font-sans">
+    <div className="space-y-3.5 pb-32 text-slate-900 font-sans">
       {/* Top Header Navigation */}
       <div className="flex items-center justify-between">
         <Link href="/feed">
@@ -570,7 +570,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </div>
       </div>
 
-      {/* Toast: Успешный отклик */}
+      {/* Toast: Успешный отклик исполнителя */}
       <AnimatePresence>
         {submitSuccess && (
           <motion.div
@@ -583,7 +583,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               <CheckCircle className="w-5 h-5 text-emerald-200 shrink-0" />
               <div>
                 <div className="text-xs font-extrabold">Отклик успешно отправлен!</div>
-                <div className="text-[11px] text-emerald-100">Заказчик получит уведомление и сможет написать вам в Telegram.</div>
+                <div className="text-[11px] text-emerald-100">Заказчик увидит ваше предложение и свяжется с вами.</div>
               </div>
             </div>
           </motion.div>
@@ -624,52 +624,87 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </div>
         </div>
 
-        {/* Client Profile & Primary "Write" Action */}
-        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50/70 via-violet-50/50 to-slate-50 border border-purple-100 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-base shadow-xs shrink-0">
-              {clientDisplayName[0] || "З"}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-extrabold text-slate-900 truncate">{clientDisplayName}</span>
-                <span className="badge-violet text-[9px] font-bold px-1.5 py-0.2 rounded">Заказчик</span>
+        {/* БЛОК КОНТАКТА: РАЗДЕЛЕНИЕ ДЛЯ ЗАКАЗЧИКА И ИСПОЛНИТЕЛЯ */}
+        {isClientRole ? (
+          /* ДЛЯ ЗАКАЗЧИКА: информация о его контакте */
+          <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-sm shadow-xs shrink-0">
+                {clientDisplayName[0] || "З"}
               </div>
-              <div className="flex items-center gap-1 mt-0.5">
-                <span className="text-xs text-slate-500 font-bold truncate">
-                  {clientUsername ? `@${clientUsername}` : "Telegram профиль"}
-                </span>
-                {clientUsername && (
-                  <button
-                    type="button"
-                    onClick={() => handleCopyContact(clientUsername)}
-                    title="Скопировать username"
-                    className="p-1 text-slate-400 hover:text-violet-600 transition-colors"
-                  >
-                    {contactCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  </button>
-                )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-extrabold text-slate-900 truncate">{clientDisplayName}</span>
+                  <span className="badge-violet text-[9px] font-bold px-1.5 py-0.2 rounded">Ваш заказ</span>
+                </div>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-xs text-slate-500 font-bold truncate">
+                    {clientUsername ? `@${clientUsername}` : "Telegram не указан"}
+                  </span>
+                  {clientUsername && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyContact(clientUsername)}
+                      title="Скопировать"
+                      className="p-1 text-slate-400 hover:text-violet-600 transition-colors"
+                    >
+                      {contactCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
+            <span className="text-[10.5px] font-bold text-violet-700 bg-white px-2.5 py-1 rounded-xl border border-purple-100">
+              Исполнители видят этот контакт
+            </span>
           </div>
-
-          {/* Action: Write to Client in Telegram */}
-          {clientTgUrl ? (
-            <a
-              href={clientTgUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-primary py-2 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Написать заказчику</span>
-            </a>
-          ) : (
-            <div className="text-[11px] font-bold text-slate-400 bg-white/80 px-3 py-1.5 rounded-xl border border-slate-200">
-              Контакт скрыт в Telegram
+        ) : (
+          /* ДЛЯ ИСПОЛНИТЕЛЯ: кнопка «Написать заказчику» */
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-violet-50 to-slate-50 border border-purple-100 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-base shadow-xs shrink-0">
+                {clientDisplayName[0] || "З"}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-extrabold text-slate-900 truncate">{clientDisplayName}</span>
+                  <span className="badge-violet text-[9px] font-bold px-1.5 py-0.2 rounded">Заказчик</span>
+                </div>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-xs text-slate-500 font-bold truncate">
+                    {clientUsername ? `@${clientUsername}` : "Telegram профиль"}
+                  </span>
+                  {clientUsername && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyContact(clientUsername)}
+                      title="Скопировать username"
+                      className="p-1 text-slate-400 hover:text-violet-600 transition-colors"
+                    >
+                      {contactCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
-        </div>
+
+            {clientTgUrl ? (
+              <a
+                href={clientTgUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary py-2 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Написать заказчику</span>
+              </a>
+            ) : (
+              <div className="text-[11px] font-bold text-slate-400 bg-white/80 px-3 py-1.5 rounded-xl border border-slate-200">
+                Контакт скрыт
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Task Description */}
         <div>
@@ -703,8 +738,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </div>
       </motion.div>
 
-      {/* User's existing response banner (If already responded) */}
-      {myResponse && (
+      {/* ДЛЯ ИСПОЛНИТЕЛЯ: Плашка отправленного отклика (если уже откликнулся) */}
+      {isExecutorRole && myResponse && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -713,7 +748,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-violet-600 text-white flex items-center justify-center">
-                <Check className="w-4 h-4" />
+                <CheckCheck className="w-4 h-4" />
               </div>
               <div>
                 <h3 className="text-xs font-extrabold text-slate-900">Ваш отклик на этот заказ</h3>
@@ -773,7 +808,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </motion.div>
       )}
 
-      {/* Responses Section & Submit Form */}
+      {/* СЕКЦИЯ ОТКЛИКОВ */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -784,12 +819,15 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           <div>
             <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
               <Users className="w-4 h-4 text-violet-600" />
-              Отклики исполнителей ({responses.length})
+              <span>{isClientRole ? "Отклики исполнителей" : "Отклики на заказ"} ({responses.length})</span>
             </h2>
-            <p className="text-slate-400 text-[11px] font-medium mt-0.5">Специалисты, готовые выполнить эту задачу</p>
+            <p className="text-slate-400 text-[11px] font-medium mt-0.5">
+              {isClientRole ? "Специалисты, готовые выполнить ваше задание" : "Список предложений по данному заданию"}
+            </p>
           </div>
 
-          {!myResponse && order.status === "active" && (
+          {/* Кнопка «Откликнуться» доступна ТОЛЬКО исполнителю, если он еще не откликался */}
+          {isExecutorRole && !myResponse && order.status === "active" && (
             <button
               onClick={() => setShowResponseForm(!showResponseForm)}
               className="btn-primary text-xs font-extrabold py-2 px-3.5 rounded-xl flex items-center gap-1.5 shadow-violet"
@@ -806,9 +844,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </div>
         ) : null}
 
-        {/* Response Form */}
+        {/* ФОРМА ОТКЛИКА (ТОЛЬКО ДЛЯ ИСПОЛНИТЕЛЯ) */}
         <AnimatePresence>
-          {showResponseForm && !myResponse ? (
+          {isExecutorRole && showResponseForm && !myResponse ? (
             <motion.form
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
@@ -832,7 +870,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 </div>
               ) : null}
 
-              {/* Quick AI Templates */}
+              {/* Быстрые шаблоны */}
               <div className="space-y-1.5">
                 <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
                   <Zap className="w-3 h-3 text-amber-500" />
@@ -923,7 +961,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           ) : null}
         </AnimatePresence>
 
-        {/* Responses Feed */}
+        {/* СПИСОК ОТКЛИКОВ */}
         <div className="space-y-3">
           {responses.length === 0 ? (
             <div className="text-center py-8">
@@ -931,7 +969,11 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <Users className="w-6 h-6" />
               </div>
               <p className="text-xs font-bold text-slate-800">Пока нет откликов</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Будьте первым исполнителем, отправившим предложение!</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {isClientRole
+                  ? "Специалисты увидят ваше задание в ленте и начнут отправлять предложения"
+                  : "Будьте первым исполнителем, отправившим предложение!"}
+              </p>
             </div>
           ) : (
             responses.map((resp, index) => {
@@ -1006,8 +1048,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                     </span>
 
                     <div className="flex items-center gap-1.5">
-                      {/* Button to write to executor in Telegram */}
-                      {execTgUrl && (
+                      {/* Кнопка написать исполнителю в Telegram (доступна заказчику) */}
+                      {isClientRole && execTgUrl && (
                         <a
                           href={execTgUrl}
                           target="_blank"
@@ -1019,8 +1061,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                         </a>
                       )}
 
-                      {/* Client actions for this response */}
-                      {(isOwner || role === "client") && resp.status === "pending" && (
+                      {/* Кнопки Принять/Отклонить: доступны ТОЛЬКО заказчику */}
+                      {isClientRole && resp.status === "pending" && (
                         <div className="flex gap-1">
                           <button
                             type="button"
@@ -1049,7 +1091,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         </div>
       </motion.div>
 
-      {/* Floating Bottom Bar for Quick Action */}
+      {/* ФИКСИРОВАННАЯ НИЖНЯЯ ПАНЕЛЬ: ЧЕТКО РАЗДЕЛЕНА ПО РОЛЯМ */}
       <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur-md border-t border-slate-200 z-30 flex items-center justify-between gap-3 max-w-md mx-auto">
         <div className="min-w-0 flex-1">
           <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Бюджет задачи</div>
@@ -1058,37 +1100,54 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {clientTgUrl && (
-            <a
-              href={clientTgUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3.5 py-2.5 rounded-2xl bg-purple-50 text-violet-700 border border-purple-200 hover:bg-purple-100 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Написать</span>
-            </a>
-          )}
-
-          {!myResponse && order.status === "active" ? (
-            <button
-              onClick={() => {
-                setShowResponseForm(true);
-                window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-              }}
-              className="btn-primary py-2.5 px-4 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 shadow-violet"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Откликнуться</span>
-            </button>
-          ) : myResponse ? (
-            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-2xl border border-emerald-200 flex items-center gap-1">
-              <Check className="w-3.5 h-3.5" />
-              <span>Вы откликнулись</span>
+        {isClientRole ? (
+          /* ДЛЯ ЗАКАЗЧИКА: Показываем статус откликов и кнопку поделиться */
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-violet-700 bg-purple-50 px-3 py-2 rounded-2xl border border-purple-200">
+              Откликов: {responses.length}
             </span>
-          ) : null}
-        </div>
+            <button
+              onClick={handleShare}
+              className="px-3.5 py-2.5 rounded-2xl bg-violet-600 text-white hover:bg-violet-700 text-xs font-extrabold flex items-center gap-1.5 transition-colors shadow-violet"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Поделиться</span>
+            </button>
+          </div>
+        ) : (
+          /* ДЛЯ ИСПОЛНИТЕЛЯ: Кнопки «Написать заказчику» и «Откликнуться» */
+          <div className="flex items-center gap-2">
+            {clientTgUrl && (
+              <a
+                href={clientTgUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-2.5 rounded-2xl bg-purple-50 text-violet-700 border border-purple-200 hover:bg-purple-100 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Написать</span>
+              </a>
+            )}
+
+            {!myResponse && order.status === "active" ? (
+              <button
+                onClick={() => {
+                  setShowResponseForm(true);
+                  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+                }}
+                className="btn-primary py-2.5 px-4 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 shadow-violet"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Откликнуться</span>
+              </button>
+            ) : myResponse ? (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-2xl border border-emerald-200 flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" />
+                <span>Отклик отправлен</span>
+              </span>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );

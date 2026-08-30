@@ -2,5 +2,5 @@
   "name": "1337 — Фриланс биржа",
   "description": "Telegram Mini App фриланс биржа 1337 для поиска исполнителей и заказов",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

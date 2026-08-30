@@ -20,7 +20,7 @@ export function BottomNav() {
 
   useEffect(() => {
     const updateRole = () => {
-      const savedRole = localStorage.getItem("fiolet_role") || "executor";
+      const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
       setRole(savedRole);
     };
 

@@ -72,7 +72,7 @@ export default function FeedPage() {
 
   const loadUserRole = useCallback(async () => {
     try {
-      const savedRole = localStorage.getItem("fiolet_role") || "client";
+      const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
       setUserRole(savedRole);
 
       const { data: { user } } = await supabase.auth.getUser();
@@ -84,6 +84,7 @@ export default function FeedPage() {
           .single();
         if (data?.role) {
           setUserRole(data.role);
+          localStorage.setItem("1337_role", data.role);
           localStorage.setItem("fiolet_role", data.role);
         }
       }

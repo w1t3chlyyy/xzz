@@ -1,3 +1,4 @@
+// app/(main)/orders/new/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -22,7 +23,10 @@ import {
   HelpCircle,
   FileText,
   Zap,
-  ArrowRight
+  ArrowRight,
+  UserCheck,
+  Sparkles,
+  Info
 } from "lucide-react";
 import Link from "next/link";
 
@@ -71,7 +75,8 @@ export default function NewOrderPage() {
   const [category, setCategory] = useState("programming");
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
-  const [deadlineDays, setDeadlineDays] = useState("7");
+  const [contactUsername, setContactUsername] = useState("");
+  const [contactName, setContactName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
@@ -80,9 +85,46 @@ export default function NewOrderPage() {
     const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
     setRole(savedRole);
     if (savedRole === "executor") {
-      router.replace("/portfolio");
+      return;
     }
-  }, [router]);
+
+    // 1. Извлекаем данные из Telegram WebApp
+    const tgUser = getTelegramUser();
+    if (tgUser) {
+      if (tgUser.username) {
+        setContactUsername(tgUser.username.replace(/^@/, ""));
+      }
+      if (tgUser.displayName) {
+        setContactName(tgUser.displayName);
+      }
+    }
+
+    // 2. Дополнительно подтягиваем из базы Supabase
+    async function fetchUserProfile() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data } = await supabase
+            .from("users")
+            .select("first_name, username")
+            .eq("id", user.id)
+            .single();
+          if (data) {
+            if (data.username) {
+              setContactUsername((prev) => prev || data.username.replace(/^@/, ""));
+            }
+            if (data.first_name) {
+              setContactName((prev) => prev || data.first_name);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch user profile:", e);
+      }
+    }
+
+    fetchUserProfile();
+  }, [router, supabase]);
 
   const handleApplyTemplate = (tmpl: typeof QUICK_TEMPLATES[0]) => {
     setTitle(tmpl.title);
@@ -100,20 +142,29 @@ export default function NewOrderPage() {
 
     try {
       const tgUser = getTelegramUser();
-      const finalTitle = title || description.slice(0, 50).split("\n")[0];
+      const finalTitle = title.trim() || description.slice(0, 50).split("\n")[0];
+      const finalUsername = contactUsername.trim().replace(/^@/, "") || tgUser?.username?.replace(/^@/, "") || "";
+      const finalName = contactName.trim() || tgUser?.displayName || "Заказчик";
+
       const { data: { user } } = await supabase.auth.getUser();
 
-      // ВАЖНО: раньше id локальной карточки (для мгновенного показа в ленте)
-      // генерировался отдельно от настоящего id, который Supabase присваивает
-      // строке через gen_random_uuid(). Эти два id никогда не совпадали, из-за
-      // чего клик по только что созданному заказу в "Моих заказах" вёл на
-      // несуществующий /orders/order-169..., и страница заказа всегда
-      // отвечала "Заказ не найден" — искала по чужому, локальному id.
-      // Теперь берём id прямо из ответа Supabase через .select().single()
-      // и используем именно его для локального кэша.
       let insertedId: string | null = null;
 
       if (user) {
+        // Гарантируем, что в таблице users сохранён контакт заказчика (username и first_name)
+        try {
+          await supabase
+            .from("users")
+            .update({
+              username: finalUsername || null,
+              first_name: finalName,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", user.id);
+        } catch (uErr) {
+          console.warn("Failed to sync contact to users table:", uErr);
+        }
+
         const { data: inserted, error: insertError } = await supabase
           .from("orders")
           .insert({
@@ -135,10 +186,7 @@ export default function NewOrderPage() {
         }
       }
 
-      // Локальный кэш нужен только для мгновенного отображения в ленте до
-      // того, как реальный список подтянется из Supabase. Сохраняем его
-      // ТОЛЬКО если реально получили id из базы — иначе карточка будет вести
-      // на несуществующую страницу, как это было раньше.
+      // Сохраняем в локальный кэш для мгновенного отображения с заполненным контактом
       if (insertedId) {
         const newLocalOrder = {
           id: insertedId,
@@ -149,18 +197,11 @@ export default function NewOrderPage() {
           budget_max: budgetMax ? parseInt(budgetMax) : 45000,
           created_at: new Date().toISOString(),
           client: {
-            first_name: tgUser?.displayName || "Вы (Заказчик)",
-            username: tgUser?.username?.replace(/^@/, "") || "client_tg",
+            first_name: finalName,
+            username: finalUsername || "client",
           },
         };
-        // addCachedClientOrder() сам подчищает старые "битые" записи (id вида
-        // order-169..., оставшиеся с версии до фикса) при каждом вызове —
-        // отдельно ничего чистить не нужно.
         addCachedClientOrder(newLocalOrder);
-      } else {
-        console.warn(
-          "Order was not saved to Supabase (не авторизован или insert упал) — локальный кэш не обновляем, чтобы не создавать битую ссылку."
-        );
       }
 
       router.push("/feed");
@@ -172,6 +213,7 @@ export default function NewOrderPage() {
     }
   };
 
+  // Если роль — исполнитель: отдельный экран
   if (role === "executor") {
     return (
       <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] text-center space-y-4 my-8">
@@ -180,22 +222,28 @@ export default function NewOrderPage() {
         </div>
         <div>
           <h2 className="text-base font-extrabold text-slate-900">
-            Публикация заданий для заказчиков
+            Создание заказов доступно заказчикам
           </h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
-            Вы авторизованы как исполнитель. Для получения заказов заполните портфолио и резюме.
+          <p className="text-xs text-slate-500 mt-1.5 max-w-xs mx-auto leading-relaxed">
+            Вы вошли как исполнитель. Для поиска работы перейдите в ленту заказов или заполните портфолио в профиле.
           </p>
         </div>
-        <Link href="/portfolio" className="btn-primary py-3 px-5 rounded-2xl text-xs font-bold inline-flex items-center gap-2 shadow-violet">
-          <span>Перейти в Портфолио и Резюме</span>
-          <ArrowRight className="w-4 h-4" />
-        </Link>
+        <div className="flex flex-col gap-2 pt-2">
+          <Link href="/feed" className="btn-primary py-3 px-5 rounded-2xl text-xs font-bold inline-flex items-center justify-center gap-2 shadow-violet">
+            <span>Смотреть заказы в ленте</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+          <Link href="/portfolio" className="py-2.5 px-4 rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-colors">
+            Перейти в Моё портфолио
+          </Link>
+        </div>
       </div>
     );
   }
 
+  // Экран публикации для заказчика
   return (
-    <div className="space-y-4 pb-24 text-slate-900 font-sans">
+    <div className="space-y-4 pb-28 text-slate-900 font-sans">
       {/* Top Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -210,16 +258,71 @@ export default function NewOrderPage() {
           <div>
             <h1 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
               <span>Опубликовать заказ</span>
-              <span className="badge-violet text-[10px] font-bold py-0.5 px-2 rounded-lg">1337</span>
+              <span className="badge-violet text-[10px] font-bold py-0.5 px-2 rounded-lg">Заказчик</span>
             </h1>
             <p className="text-slate-400 text-xs mt-0.5">
-              Исполнители начнут откликаться в течение 10–15 минут
+              Исполнители увидят заказ и начнут откликаться
             </p>
           </div>
         </div>
       </div>
 
-      {/* Quick Templates Banner */}
+      {/* 1. БЛОК КОНТАКТОВ ЗАКАЗЧИКА (ВСЕГДА ВИДНЫЙ И ВЫДЕЛЕННЫЙ) */}
+      <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 rounded-3xl p-5 text-white shadow-[0_8px_30px_rgba(124,58,237,0.25)] space-y-3.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white">
+              <Send className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-extrabold uppercase tracking-wider">Контакты для связи (Telegram)</h3>
+              <p className="text-[10px] text-purple-200">Исполнители увидят этот контакт в заказе</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-extrabold bg-white/20 text-white px-2.5 py-1 rounded-full border border-white/20">
+            Из профиля
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div>
+            <label className="block text-[11px] font-bold text-purple-100 mb-1">
+              Telegram никнейм (@username) *
+            </label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-violet-300 text-xs font-extrabold">@</span>
+              <input
+                type="text"
+                value={contactUsername}
+                onChange={(e) => setContactUsername(e.target.value.replace(/^@/, ""))}
+                placeholder="ваш_telegram_ник"
+                className="w-full pl-8 pr-3.5 py-2.5 rounded-2xl bg-white text-slate-900 placeholder-slate-400 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-300 shadow-sm"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-purple-100 mb-1">
+              Ваше имя / Компания
+            </label>
+            <input
+              type="text"
+              value={contactName}
+              onChange={(e) => setContactName(e.target.value)}
+              placeholder="Как к вам обращаться"
+              className="w-full px-3.5 py-2.5 rounded-2xl bg-white text-slate-900 placeholder-slate-400 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-300 shadow-sm"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 text-[10.5px] text-purple-200 bg-black/15 p-2.5 rounded-xl border border-white/10">
+          <Info className="w-3.5 h-3.5 shrink-0 text-amber-300" />
+          <span>Специалисты смогут в 1 клик написать вам в Telegram или отправить отклик в приложении.</span>
+        </div>
+      </div>
+
+      {/* Быстрые шаблоны заданий */}
       <div className="bg-white rounded-3xl p-4 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
