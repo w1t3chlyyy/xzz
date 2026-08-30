@@ -20,8 +20,8 @@ function isAdmin(userId: number): boolean {
 const TIER_LABEL: Record<string, string> = { pro: "Pro" };
 
 // ⬇️ Ссылки на канал и поддержку задаются здесь, прямо в коде
-const CHANNEL_URL = "https://t.me/your_channel_name";      // ← замените на ваш канал
-const SUPPORT_URL = "https://t.me/your_support_username";  // ← замените на ваш support-аккаунт
+const CHANNEL_URL = "https://t.me/F1337C";      // ← замените на ваш канал
+const SUPPORT_URL = "https://t.me/F1337H";  // ← замените на ваш support-аккаунт
 
 export async function GET() {
   return NextResponse.json({ ok: true, message: "Telegram webhook is alive" });
