@@ -37,6 +37,24 @@ export interface CreateInvoiceParams {
   expires_in?: number;
 }
 
+// CryptoBot возвращает ошибку в формате { ok: false, error: { code: number, name: string } },
+// то есть data.error — это ОБЪЕКТ, а не строка. Раньше код делал
+// `CryptoBot API error: ${data.error}`, что для объекта превращается в
+// нечитаемое "[object Object]" и скрывает реальную причину (неверный токен,
+// недопустимая сумма/точность для актива, неверный asset и т.п.).
+function stringifyCryptoBotError(data: any): string {
+  if (!data) return 'unknown error';
+  const err = data.error;
+  if (!err) return JSON.stringify(data);
+  if (typeof err === 'string') return err;
+  if (typeof err === 'object') {
+    const name = err.name || err.code || 'ERROR';
+    const code = err.code !== undefined ? ` (code ${err.code})` : '';
+    return `${name}${code}`;
+  }
+  return String(err);
+}
+
 export class CryptoBotClient {
   private apiKey: string;
   private baseUrl: string;
@@ -73,8 +91,12 @@ export class CryptoBotClient {
     const response = await fetch(url, options);
     const data = await response.json();
 
-    if (!response.ok) {
-      throw new Error(`CryptoBot API error: ${data.error || response.statusText}`);
+    if (!response.ok || data.ok === false) {
+      const message = stringifyCryptoBotError(data);
+      // Полный ответ в логи Vercel — на случай если понадобятся детали за пределами
+      // короткого message (например, конкретное поле, которое не прошло валидацию).
+      console.error('CryptoBot API raw error response:', JSON.stringify(data));
+      throw new Error(`CryptoBot API error: ${message}`);
     }
 
     return data as T;
