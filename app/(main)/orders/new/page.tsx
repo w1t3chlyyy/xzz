@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { getTelegramUser } from "@/lib/telegram/webapp";
+import { addCachedClientOrder } from "@/lib/utils";
 import {
   ArrowLeft,
   Plus,
@@ -139,7 +140,6 @@ export default function NewOrderPage() {
       // ТОЛЬКО если реально получили id из базы — иначе карточка будет вести
       // на несуществующую страницу, как это было раньше.
       if (insertedId) {
-        const cachedOrders = JSON.parse(localStorage.getItem("fiolet_client_orders") || "[]");
         const newLocalOrder = {
           id: insertedId,
           title: finalTitle,
@@ -153,7 +153,10 @@ export default function NewOrderPage() {
             username: tgUser?.username?.replace(/^@/, "") || "client_tg",
           },
         };
-        localStorage.setItem("fiolet_client_orders", JSON.stringify([newLocalOrder, ...cachedOrders]));
+        // addCachedClientOrder() сам подчищает старые "битые" записи (id вида
+        // order-169..., оставшиеся с версии до фикса) при каждом вызове —
+        // отдельно ничего чистить не нужно.
+        addCachedClientOrder(newLocalOrder);
       } else {
         console.warn(
           "Order was not saved to Supabase (не авторизован или insert упал) — локальный кэш не обновляем, чтобы не создавать битую ссылку."
