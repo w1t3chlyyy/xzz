@@ -133,8 +133,14 @@ export function expandTelegramApp() {
       tg.ready();
       tg.expand();
 
-      // Запрос на открытие во весь экран (Telegram WebApp 8.0+)
-      if (typeof tg.requestFullscreen === "function") {
+      const hasVersionCheck = typeof tg.isVersionAtLeast === "function";
+
+      // Запрос на открытие во весь экран (доступно только в Telegram WebApp 8.0+)
+      if (
+        hasVersionCheck &&
+        tg.isVersionAtLeast("8.0") &&
+        typeof tg.requestFullscreen === "function"
+      ) {
         try {
           tg.requestFullscreen();
         } catch {
@@ -142,8 +148,12 @@ export function expandTelegramApp() {
         }
       }
 
-      // Отключение вертикальных свайпов для предотвращения случайного сворачивания
-      if (typeof tg.disableVerticalSwipes === "function") {
+      // Отключение вертикальных свайпов для предотвращения случайного сворачивания (доступно с 7.7+)
+      if (
+        hasVersionCheck &&
+        tg.isVersionAtLeast("7.7") &&
+        typeof tg.disableVerticalSwipes === "function"
+      ) {
         try {
           tg.disableVerticalSwipes();
         } catch {
@@ -151,8 +161,11 @@ export function expandTelegramApp() {
         }
       }
 
-      // Настройка цвета шапки
-      if (typeof tg.setHeaderColor === "function") {
+      // Настройка цвета шапки (доступно с 6.1+)
+      if (
+        (!hasVersionCheck || tg.isVersionAtLeast("6.1")) &&
+        typeof tg.setHeaderColor === "function"
+      ) {
         try {
           tg.setHeaderColor("#F4F3FA");
           tg.setBackgroundColor("#F4F3FA");
@@ -169,8 +182,14 @@ export function expandTelegramApp() {
 export function setTelegramHeaderColor(color: string) {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
     try {
-      window.Telegram.WebApp.setHeaderColor(color);
-      window.Telegram.WebApp.setBackgroundColor(color);
+      const tg = window.Telegram.WebApp as any;
+      if (
+        typeof tg.isVersionAtLeast !== "function" ||
+        tg.isVersionAtLeast("6.1")
+      ) {
+        tg.setHeaderColor?.(color);
+        tg.setBackgroundColor?.(color);
+      }
     } catch {
       // ignore
     }

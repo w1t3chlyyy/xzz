@@ -9,6 +9,8 @@ export interface TelegramUser {
 }
 
 export interface TelegramWebApp {
+  version?: string;
+  isVersionAtLeast?(version: string): boolean;
   initData: string;
   initDataUnsafe?: {
     query_id?: string;
