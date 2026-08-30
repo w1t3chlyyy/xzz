@@ -49,25 +49,26 @@ export function FeedFilter({
     <div className="space-y-2.5">
       {/* Top Filter Buttons Bar matching screenshot */}
       <div className="flex items-center gap-2">
-        {/* Category Pill Dropdown */}
+        {/* Category Pill Dropdown — раньше в неактивном состоянии был синий,
+            теперь везде фиолетовая палитра */}
         <button
           onClick={() => setIsCategoryOpen(!isCategoryOpen)}
           className={cn(
             "flex-1 flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all duration-200 shadow-xs select-none",
             activeCategory !== "all"
               ? "bg-violet-100 text-violet-800 border border-violet-300 shadow-violet"
-              : "bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE] hover:border-blue-400"
+              : "bg-violet-50 text-violet-700 border border-violet-200 hover:border-violet-400"
           )}
         >
           <div className="flex items-center gap-2 truncate">
-            <Tag className="w-4 h-4 shrink-0 text-[#2563EB]" />
+            <Tag className="w-4 h-4 shrink-0 text-violet-600" />
             <span className="truncate">
               {activeCategory === "all" ? "Категории..." : currentCategory.label}
             </span>
           </div>
           <ChevronDown
             className={cn(
-              "w-3.5 h-3.5 ml-1 transition-transform text-[#2563EB]",
+              "w-3.5 h-3.5 ml-1 transition-transform text-violet-600",
               isCategoryOpen && "rotate-180"
             )}
           />
@@ -227,4 +228,3 @@ export function FeedFilter({
     </div>
   );
 }
-
