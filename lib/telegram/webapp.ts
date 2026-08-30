@@ -129,10 +129,39 @@ export function getTelegramInitData(): string {
 export function expandTelegramApp() {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
     try {
-      window.Telegram.WebApp.expand();
-      window.Telegram.WebApp.ready();
-    } catch {
-      // ignore
+      const tg = window.Telegram.WebApp as any;
+      tg.ready();
+      tg.expand();
+
+      // Запрос на открытие во весь экран (Telegram WebApp 8.0+)
+      if (typeof tg.requestFullscreen === "function") {
+        try {
+          tg.requestFullscreen();
+        } catch {
+          // ignore
+        }
+      }
+
+      // Отключение вертикальных свайпов для предотвращения случайного сворачивания
+      if (typeof tg.disableVerticalSwipes === "function") {
+        try {
+          tg.disableVerticalSwipes();
+        } catch {
+          // ignore
+        }
+      }
+
+      // Настройка цвета шапки
+      if (typeof tg.setHeaderColor === "function") {
+        try {
+          tg.setHeaderColor("#F4F3FA");
+          tg.setBackgroundColor("#F4F3FA");
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      console.warn("Telegram WebApp initialization error:", err);
     }
   }
 }

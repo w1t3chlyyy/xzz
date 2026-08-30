@@ -16,13 +16,19 @@ export interface TelegramWebApp {
     auth_date?: string | number;
     hash?: string;
   };
+  isExpanded?: boolean;
   ready(): void;
   expand(): void;
   close(): void;
+  requestFullscreen?(): void;
+  disableVerticalSwipes?(): void;
+  enableVerticalSwipes?(): void;
   setHeaderColor(color: string): void;
   setBackgroundColor(color: string): void;
   openTelegramLink(url: string): void;
   openLink(url: string): void;
+  onEvent?(eventType: string, eventHandler: () => void): void;
+  offEvent?(eventType: string, eventHandler: () => void): void;
 }
 
 declare global {

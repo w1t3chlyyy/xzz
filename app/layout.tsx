@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+import { TelegramInitializer } from "@/components/TelegramInitializer";
 import "./globals.css";
 
 const plusJakarta = Plus_Jakarta_Sans({
@@ -44,6 +45,7 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased font-sans bg-[#F4F3FA] text-slate-900 min-h-screen selection:bg-purple-500/20 selection:text-purple-900">
+        <TelegramInitializer />
         {children}
       </body>
     </html>
