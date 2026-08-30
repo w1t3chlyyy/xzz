@@ -31,9 +31,29 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = createAdminClient();
-    const { data: profile } = await admin.from("users").select("telegram_id").eq("id", user.id).single();
+    const { data: profile, error: profileError } = await admin
+      .from("users")
+      .select("telegram_id")
+      .eq("id", user.id)
+      .single();
+
     if (!profile?.telegram_id) {
-      return NextResponse.json({ error: "Telegram аккаунт не привязан" }, { status: 400 });
+      // ВРЕМЕННАЯ ДИАГНОСТИКА: возвращаем реальный auth user.id и содержимое
+      // profileError, чтобы понять, какая именно сессия сейчас авторизована
+      // и почему у неё нет telegram_id. Уберите debug-поля после того,
+      // как разберётесь с причиной — не стоит светить internal id в проде.
+      return NextResponse.json(
+        {
+          error: "Telegram аккаунт не привязан",
+          debug: {
+            authUserId: user.id,
+            authEmail: user.email,
+            profileFound: !!profile,
+            profileError: profileError?.message || null,
+          },
+        },
+        { status: 400 }
+      );
     }
 
     const price = PRICES[tier];
