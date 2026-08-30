@@ -408,7 +408,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </div>
 
           {clientTgUrl ? (
-            
+            <a
               href={clientTgUrl}
               target="_blank"
               rel="noopener noreferrer"
