@@ -102,34 +102,63 @@ export default function NewOrderPage() {
       const finalTitle = title || description.slice(0, 50).split("\n")[0];
       const { data: { user } } = await supabase.auth.getUser();
 
+      // ВАЖНО: раньше id локальной карточки (для мгновенного показа в ленте)
+      // генерировался отдельно от настоящего id, который Supabase присваивает
+      // строке через gen_random_uuid(). Эти два id никогда не совпадали, из-за
+      // чего клик по только что созданному заказу в "Моих заказах" вёл на
+      // несуществующий /orders/order-169..., и страница заказа всегда
+      // отвечала "Заказ не найден" — искала по чужому, локальному id.
+      // Теперь берём id прямо из ответа Supabase через .select().single()
+      // и используем именно его для локального кэша.
+      let insertedId: string | null = null;
+
       if (user) {
-        await supabase.from("orders").insert({
-          client_id: user.id,
+        const { data: inserted, error: insertError } = await supabase
+          .from("orders")
+          .insert({
+            client_id: user.id,
+            title: finalTitle,
+            description,
+            category,
+            budget_min: budgetMin ? parseInt(budgetMin) : null,
+            budget_max: budgetMax ? parseInt(budgetMax) : null,
+            status: "active",
+          })
+          .select("id")
+          .single();
+
+        if (insertError) {
+          console.error("Error inserting order:", insertError);
+        } else {
+          insertedId = inserted?.id ?? null;
+        }
+      }
+
+      // Локальный кэш нужен только для мгновенного отображения в ленте до
+      // того, как реальный список подтянется из Supabase. Сохраняем его
+      // ТОЛЬКО если реально получили id из базы — иначе карточка будет вести
+      // на несуществующую страницу, как это было раньше.
+      if (insertedId) {
+        const cachedOrders = JSON.parse(localStorage.getItem("fiolet_client_orders") || "[]");
+        const newLocalOrder = {
+          id: insertedId,
           title: finalTitle,
           description,
           category,
-          budget_min: budgetMin ? parseInt(budgetMin) : null,
-          budget_max: budgetMax ? parseInt(budgetMax) : null,
-          status: "active",
-        });
+          budget_min: budgetMin ? parseInt(budgetMin) : 25000,
+          budget_max: budgetMax ? parseInt(budgetMax) : 45000,
+          created_at: new Date().toISOString(),
+          client: {
+            first_name: tgUser?.displayName || "Вы (Заказчик)",
+            username: tgUser?.username?.replace(/^@/, "") || "client_tg",
+          },
+        };
+        localStorage.setItem("fiolet_client_orders", JSON.stringify([newLocalOrder, ...cachedOrders]));
+      } else {
+        console.warn(
+          "Order was not saved to Supabase (не авторизован или insert упал) — локальный кэш не обновляем, чтобы не создавать битую ссылку."
+        );
       }
-
-      // Also save locally for instant preview in feed
-      const cachedOrders = JSON.parse(localStorage.getItem("fiolet_client_orders") || "[]");
-      const newLocalOrder = {
-        id: `order-${Date.now()}`,
-        title: finalTitle,
-        description,
-        category,
-        budget_min: budgetMin ? parseInt(budgetMin) : 25000,
-        budget_max: budgetMax ? parseInt(budgetMax) : 45000,
-        created_at: new Date().toISOString(),
-        client: {
-          first_name: tgUser?.displayName || "Вы (Заказчик)",
-          username: tgUser?.username?.replace(/^@/, "") || "client_tg",
-        },
-      };
-      localStorage.setItem("fiolet_client_orders", JSON.stringify([newLocalOrder, ...cachedOrders]));
 
       router.push("/feed");
       router.refresh();
