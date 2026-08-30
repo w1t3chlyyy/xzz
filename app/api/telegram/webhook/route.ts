@@ -265,7 +265,7 @@ async function sendWelcome(chatId: number | string, supabase: AdminClient) {
     `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`;
 
   const keyboard = {
-    inline_keyboard: [[{ text: "Открыть 1337", web_app: { url: process.env.NEXT_PUBLIC_SITE_URL } }]],
+    inline_keyboard: [[{ text: "Открыть биржу", web_app: { url: process.env.NEXT_PUBLIC_SITE_URL } }]],
   };
 
   if (settings?.welcome_photo_file_id) {
