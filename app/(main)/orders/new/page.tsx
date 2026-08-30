@@ -293,61 +293,6 @@ export default function NewOrderPage() {
         </div>
       </div>
 
-      {/* 1. БЛОК КОНТАКТОВ ЗАКАЗЧИКА (ВСЕГДА ВИДНЫЙ И ВЫДЕЛЕННЫЙ) */}
-      <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 rounded-3xl p-5 text-white shadow-[0_8px_30px_rgba(124,58,237,0.25)] space-y-3.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white">
-              <Send className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-xs font-extrabold uppercase tracking-wider">Контакты для связи (Telegram)</h3>
-              <p className="text-[10px] text-purple-200">Исполнители увидят этот контакт в заказе</p>
-            </div>
-          </div>
-          <span className="text-[10px] font-extrabold bg-white/20 text-white px-2.5 py-1 rounded-full border border-white/20">
-            Из профиля
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-          <div>
-            <label className="block text-[11px] font-bold text-purple-100 mb-1">
-              Telegram никнейм (@username) *
-            </label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-violet-300 text-xs font-extrabold">@</span>
-              <input
-                type="text"
-                value={contactUsername}
-                onChange={(e) => setContactUsername(e.target.value.replace(/^@/, ""))}
-                placeholder="ваш_telegram_ник"
-                className="w-full pl-8 pr-3.5 py-2.5 rounded-2xl bg-white text-slate-900 placeholder-slate-400 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-300 shadow-sm"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-purple-100 mb-1">
-              Ваше имя / Компания
-            </label>
-            <input
-              type="text"
-              value={contactName}
-              onChange={(e) => setContactName(e.target.value)}
-              placeholder="Как к вам обращаться"
-              className="w-full px-3.5 py-2.5 rounded-2xl bg-white text-slate-900 placeholder-slate-400 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-300 shadow-sm"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 text-[10.5px] text-purple-200 bg-black/15 p-2.5 rounded-xl border border-white/10">
-          <Info className="w-3.5 h-3.5 shrink-0 text-amber-300" />
-          <span>Специалисты смогут в 1 клик написать вам в Telegram или отправить отклик в приложении.</span>
-        </div>
-      </div>
-
       {/* Быстрые шаблоны заданий */}
       <div className="bg-white rounded-3xl p-4 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] space-y-2.5">
         <div className="flex items-center justify-between">

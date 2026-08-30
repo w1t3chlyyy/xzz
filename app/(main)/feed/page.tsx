@@ -29,6 +29,9 @@ interface Order {
   category: string;
   budget_min: number | null;
   budget_max: number | null;
+  status?: string;
+  pending_responses_count?: number;
+  total_responses_count?: number;
   created_at: string;
   client: {
     first_name: string;
@@ -102,12 +105,50 @@ export default function FeedPage() {
     setItems([]);
 
     try {
-      // Локальный кэш заказов клиента — используем самоочищающийся хелпер:
-      // он сам выбрасывает записи со старыми "битыми" id (созданными до
-      // фикса перехода на реальный UUID из Supabase), так что здесь уже
-      // гарантированно только валидные, кликабельные заказы.
+      // Локальный кэш заказов клиента
       const localCached = getCachedClientOrders<Order>();
       setMyOrders(localCached);
+
+      // Если вкладка "Мои заказы" у клиента — подгружаем свежие данные с сервера
+      if (userRole === "client" && clientTab === "my_orders") {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data: serverMyOrders } = await supabase
+              .from("orders")
+              .select(`
+                id, title, description, category, budget_min, budget_max, status, created_at,
+                client:client_id(first_name, username),
+                responses:responses(id, status)
+              `)
+              .eq("client_id", user.id)
+              .order("created_at", { ascending: false });
+
+            if (serverMyOrders && serverMyOrders.length > 0) {
+              const formattedMyOrders = serverMyOrders.map((item: any) => {
+                const responsesList = Array.isArray(item.responses) ? item.responses : [];
+                const pendingCount = responsesList.filter((r: any) => r && (r.status === "pending" || !r.status)).length;
+                return {
+                  id: item.id,
+                  title: item.title,
+                  description: item.description,
+                  category: item.category,
+                  budget_min: item.budget_min,
+                  budget_max: item.budget_max,
+                  status: item.status || "active",
+                  pending_responses_count: pendingCount,
+                  total_responses_count: responsesList.length,
+                  created_at: item.created_at,
+                  client: item.client || { first_name: "", username: "" },
+                };
+              });
+              setMyOrders(formattedMyOrders);
+            }
+          }
+        } catch (myErr) {
+          console.warn("Failed to load server my orders:", myErr);
+        }
+      }
 
       if (userRole === "client" && clientTab === "executors") {
         let query = supabase
@@ -149,23 +190,40 @@ export default function FeedPage() {
 
         setItems(filtered);
       } else {
-        // Feed of Orders
-        let query = supabase
-          .from("orders")
-          .select(`
-            id, title, description, category, budget_min, budget_max, created_at,
-            client:client_id(first_name, username)
-          `)
-          .eq("status", "active");
-
-        if (activeCategory !== "all") {
-          query = query.eq("category", activeCategory);
+        // Feed of Orders - fetch via server route with response counts or Supabase fallback
+        let remoteOrders: Order[] = [];
+        try {
+          const res = await fetch(`/api/orders${activeCategory !== "all" ? `?category=${activeCategory}` : ""}`);
+          if (res.ok) {
+            const apiData = await res.json();
+            if (Array.isArray(apiData.orders)) {
+              remoteOrders = apiData.orders;
+            }
+          }
+        } catch (apiErr) {
+          console.warn("API /api/orders failed in feed, falling back to direct query:", apiErr);
         }
 
-        const { data, error } = await query.order("created_at", { ascending: false });
-        const remoteOrders: Order[] = !error && data
-          ? data.map((item: any) => {
+        if (remoteOrders.length === 0) {
+          let query = supabase
+            .from("orders")
+            .select(`
+              id, title, description, category, budget_min, budget_max, status, created_at,
+              client:client_id(first_name, username),
+              responses:responses(id, status)
+            `)
+            .in("status", ["active", "in_progress"]);
+
+          if (activeCategory !== "all") {
+            query = query.eq("category", activeCategory);
+          }
+
+          const { data, error } = await query.order("created_at", { ascending: false });
+          if (!error && data) {
+            remoteOrders = data.map((item: any) => {
               const clientData = Array.isArray(item.client) ? item.client[0] : item.client;
+              const responsesList = Array.isArray(item.responses) ? item.responses : [];
+              const pendingCount = responsesList.filter((r: any) => r && (r.status === "pending" || !r.status)).length;
               return {
                 id: item.id,
                 title: item.title,
@@ -173,16 +231,17 @@ export default function FeedPage() {
                 category: item.category,
                 budget_min: item.budget_min,
                 budget_max: item.budget_max,
+                status: item.status || "active",
+                pending_responses_count: pendingCount,
+                total_responses_count: responsesList.length,
                 created_at: item.created_at,
                 client: clientData || { first_name: "", username: "" },
               };
-            })
-          : [];
+            });
+          }
+        }
 
         // Локально созданные заказы (ещё не пришли из Supabase) добавляем сверху.
-        // remoteOrders уже содержит их же (с тем же id) после того, как список
-        // с сервера подтянется — на короткое время возможен дубль карточки,
-        // это ожидаемо и безвредно (id совпадают, обе ведут на одну страницу).
         const localIds = new Set(localCached.map((o) => o.id));
         const combined = [...localCached, ...remoteOrders.filter((o) => !localIds.has(o.id))];
         const filtered =
@@ -346,47 +405,77 @@ export default function FeedPage() {
               </Link>
             </div>
           ) : (
-            myOrders.map((order) => (
-              <div
-                key={order.id}
-                className="bg-white rounded-3xl p-4.5 space-y-3 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="badge-blue text-[10px] font-bold py-0.5 px-2 rounded-lg">
-                      Активно на бирже
-                    </span>
-                    <h3 className="font-extrabold text-slate-900 text-sm mt-1">
+            myOrders.map((order) => {
+              const isInProgress = order.status === "in_progress";
+              const pendingCount = order.pending_responses_count ?? 0;
+              return (
+                <div
+                  key={order.id}
+                  className="bg-white rounded-3xl p-5 sm:p-5.5 space-y-3 border border-slate-100/90 shadow-[0_4px_22px_rgba(0,0,0,0.03)] hover:shadow-[0_12px_32px_rgba(124,58,237,0.09)] hover:border-purple-200/80 transition-all duration-200"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {isInProgress ? (
+                        <span className="inline-flex items-center gap-1 text-[10.5px] font-extrabold text-amber-800 bg-amber-50/90 px-2 py-0.5 rounded-lg border border-amber-200/80">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          <span>В работе</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10.5px] font-extrabold text-emerald-800 bg-emerald-50/90 px-2 py-0.5 rounded-lg border border-emerald-200/80">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>В поиске</span>
+                        </span>
+                      )}
+
+                      <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-violet-800 bg-purple-50/90 px-2 py-0.5 rounded-lg border border-purple-100">
+                        <MessageSquare className="w-3 h-3 text-violet-600" />
+                        <span>
+                          {pendingCount === 1
+                            ? "1 отклик"
+                            : pendingCount >= 2 && pendingCount <= 4
+                            ? `${pendingCount} отклика`
+                            : `${pendingCount} откликов`}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-xs font-extrabold text-slate-900 bg-slate-50 border border-slate-200/70 px-2.5 py-1 rounded-xl">
+                        {order.budget_min && order.budget_max
+                          ? `${order.budget_min.toLocaleString()} – ${order.budget_max.toLocaleString()} ₽`
+                          : order.budget_min
+                          ? `от ${order.budget_min.toLocaleString()} ₽`
+                          : "По договоренности"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <h3 className="font-extrabold text-slate-900 text-sm sm:text-[15px] leading-snug">
                       {order.title || "Задание без названия"}
                     </h3>
+                    <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed font-medium">
+                      {order.description}
+                    </p>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs font-extrabold text-slate-900">
-                      {order.budget_min ? `${order.budget_min.toLocaleString()} ₽` : "По договоренности"}
-                    </span>
+
+                  <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 text-[11px] text-slate-400 font-medium">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      <span>{new Date(order.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}</span>
+                    </div>
+
+                    <Link
+                      href={`/orders/${order.id}`}
+                      className="btn-primary py-1.5 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet transition-transform active:scale-95"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Отклики ({order.total_responses_count ?? pendingCount})</span>
+                    </Link>
                   </div>
                 </div>
-
-                <p className="text-slate-600 text-xs line-clamp-2 leading-relaxed font-medium">
-                  {order.description}
-                </p>
-
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Только что</span>
-                  </div>
-
-                  <Link
-                    href={`/orders/${order.id}`}
-                    className="btn-primary py-2 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow-violet"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Отклики кандидатов</span>
-                  </Link>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       ) : isClient && clientTab === "executors" ? (

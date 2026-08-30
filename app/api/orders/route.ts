@@ -20,10 +20,14 @@ export async function GET(req: NextRequest) {
           username,
           avatar_url,
           telegram_id
+        ),
+        responses:responses (
+          id,
+          status
         )
       `
       )
-      .eq("status", "active")
+      .in("status", ["active", "in_progress"])
       .order("created_at", { ascending: false });
 
     if (category && category !== "all") {
@@ -43,6 +47,12 @@ export async function GET(req: NextRequest) {
 
     const formattedOrders = (orders || []).map((o: any) => {
       const clientData = Array.isArray(o.client) ? o.client[0] : o.client;
+      const responsesList = Array.isArray(o.responses) ? o.responses : [];
+      const pendingCount = responsesList.filter(
+        (r: any) => r && (r.status === "pending" || !r.status)
+      ).length;
+      const totalCount = responsesList.length;
+
       return {
         id: o.id,
         title: o.title,
@@ -50,7 +60,9 @@ export async function GET(req: NextRequest) {
         category: o.category,
         budget_min: o.budget_min,
         budget_max: o.budget_max,
-        status: o.status,
+        status: o.status || "active",
+        pending_responses_count: pendingCount,
+        total_responses_count: totalCount,
         created_at: o.created_at,
         client_id: o.client_id,
         client: {

@@ -305,6 +305,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     setResponseActionError(null);
     const previous = responses;
     setResponses((prev) => prev.map((r) => (r.id === responseId ? { ...r, status } : r)));
+    if (status === "accepted") {
+      setOrder((prev) => (prev ? { ...prev, status: "in_progress" } : null));
+    }
 
     try {
       const res = await fetch(`/api/responses/${responseId}/status`, {
@@ -316,6 +319,9 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
       if (!res.ok) {
         const { error } = await supabase.from("responses").update({ status }).eq("id", responseId);
         if (error) throw error;
+        if (status === "accepted" && order?.id) {
+          await supabase.from("orders").update({ status: "in_progress" }).eq("id", order.id);
+        }
       }
     } catch (error) {
       console.error("Error updating response status:", error);
@@ -507,21 +513,27 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     switch (status) {
       case "active":
         return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      case "in_progress":
+        return "bg-amber-50 text-amber-800 border-amber-200";
       case "closed":
+      case "completed":
         return "bg-slate-50 text-slate-700 border-slate-200";
       case "cancelled":
         return "bg-red-50 text-red-700 border-red-200";
       default:
-        return "bg-amber-50 text-amber-700 border-amber-200";
+        return "bg-purple-50 text-violet-700 border-purple-200";
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
       case "active":
-        return "Активный заказ";
+        return "В поиске исполнителя";
+      case "in_progress":
+        return "В работе";
       case "closed":
-        return "Закрыт";
+      case "completed":
+        return "Завершен";
       case "cancelled":
         return "Отменен";
       default:

@@ -28,6 +28,19 @@ export async function POST(
     if (!result.ok) {
       // Даже если уведомление упало, проверяем прямое обновление в базе
       await supabase.from("responses").update({ status }).eq("id", responseId);
+      if (status === "accepted") {
+        const { data: resp } = await supabase
+          .from("responses")
+          .select("order_id")
+          .eq("id", responseId)
+          .maybeSingle();
+        if (resp?.order_id) {
+          await supabase
+            .from("orders")
+            .update({ status: "in_progress", updated_at: new Date().toISOString() })
+            .eq("id", resp.order_id);
+        }
+      }
     }
 
     return NextResponse.json({ success: true, status });
