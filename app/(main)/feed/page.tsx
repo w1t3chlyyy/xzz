@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { FeedFilter } from "@/components/feed/FeedFilter";
 import { OrderCard } from "@/components/orders/OrderCard";
 import { ExecutorCard } from "@/components/feed/ExecutorCard";
+import { getCachedClientOrders } from "@/lib/utils";
 import {
   Loader2,
   Sparkles,
@@ -87,8 +88,11 @@ export default function FeedPage() {
     setIsLoading(true);
 
     try {
-      // Load local created orders for client
-      const localCached = JSON.parse(localStorage.getItem("fiolet_client_orders") || "[]");
+      // Локальный кэш заказов клиента — используем самоочищающийся хелпер:
+      // он сам выбрасывает записи со старыми "битыми" id (созданными до
+      // фикса перехода на реальный UUID из Supabase), так что здесь уже
+      // гарантированно только валидные, кликабельные заказы.
+      const localCached = getCachedClientOrders<Order>();
       setMyOrders(localCached);
 
       if (userRole === "client" && clientTab === "executors") {
@@ -161,9 +165,12 @@ export default function FeedPage() {
             })
           : [];
 
-        // Локально созданные заказы (ещё не пришли из Supabase) добавляем сверху,
-        // без каких-либо фейковых демо-записей.
-        const combined = [...localCached, ...remoteOrders];
+        // Локально созданные заказы (ещё не пришли из Supabase) добавляем сверху.
+        // remoteOrders уже содержит их же (с тем же id) после того, как список
+        // с сервера подтянется — на короткое время возможен дубль карточки,
+        // это ожидаемо и безвредно (id совпадают, обе ведут на одну страницу).
+        const localIds = new Set(localCached.map((o) => o.id));
+        const combined = [...localCached, ...remoteOrders.filter((o) => !localIds.has(o.id))];
         const filtered =
           activeCategory === "all" ? combined : combined.filter((o) => o.category === activeCategory);
         setItems(filtered);
@@ -353,7 +360,7 @@ export default function FeedPage() {
                   </div>
 
                   <Link
-                    href="/responses"
+                    href={`/orders/${order.id}`}
                     className="btn-primary py-2 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow-violet"
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
