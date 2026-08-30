@@ -1,3 +1,4 @@
+// app/(main)/orders/[id]/page.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -66,6 +67,14 @@ interface Response {
   };
 }
 
+// Тот же ключ, что использует components/orders/OrderCard.tsx — благодаря
+// этому "сохранено" в ленте и на странице заказа не расходится.
+const BOOKMARKS_KEY = "1337_bookmarked_orders";
+
+// Чат поддержки бота (см. app/api/telegram/webhook/route.ts, SUPPORT_URL) —
+// используется как адресат жалобы на заказ.
+const SUPPORT_URL = "https://t.me/F1337H";
+
 export default function OrderDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
@@ -79,6 +88,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const [responseBudget, setResponseBudget] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [responseActionError, setResponseActionError] = useState<string | null>(null);
 
   const loadUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -131,7 +144,76 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     setRole(savedRole);
     loadOrder();
     loadUser();
-  }, [loadOrder, loadUser]);
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]");
+      setIsBookmarked(Array.isArray(saved) && saved.includes(params.id));
+    } catch {
+      // ignore
+    }
+  }, [loadOrder, loadUser, params.id]);
+
+  const handleToggleBookmark = () => {
+    try {
+      const saved: string[] = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]");
+      const next = isBookmarked ? saved.filter((id) => id !== params.id) : [...saved, params.id];
+      localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(next));
+    } catch {
+      // localStorage недоступен — состояние всё равно переключаем визуально
+    }
+    setIsBookmarked((prev) => !prev);
+  };
+
+  const handleShare = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    const shareData = { title: order?.title || "Заказ на бирже 1337", url };
+
+    try {
+      if (typeof navigator !== "undefined" && (navigator as any).share) {
+        await (navigator as any).share(shareData);
+        return;
+      }
+    } catch {
+      // пользователь закрыл системное окно "Поделиться" — не показываем ошибку
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch (e) {
+      console.warn("Clipboard write failed:", e);
+    }
+  };
+
+  const handleReport = () => {
+    const text = encodeURIComponent(
+      `Жалоба на заказ «${order?.title || "без названия"}» (ID: ${params.id})`
+    );
+    window.open(`${SUPPORT_URL}?text=${text}`, "_blank", "noopener,noreferrer");
+  };
+
+  const handleUpdateResponseStatus = async (responseId: string, status: 'accepted' | 'rejected') => {
+    setResponseActionError(null);
+    const previous = responses;
+    setResponses((prev) => prev.map((r) => (r.id === responseId ? { ...r, status } : r)));
+
+    try {
+      // RLS-политика "Clients can update response status" разрешает это
+      // только владельцу заказа — дополнительной проверки на клиенте не нужно.
+      const { error } = await supabase
+        .from('responses')
+        .update({ status })
+        .eq('id', responseId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error updating response status:', error);
+      setResponses(previous);
+      setResponseActionError('Не удалось обновить статус отклика, попробуйте ещё раз');
+    }
+  };
 
   const handleSubmitResponse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,13 +223,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     setSubmitting(true);
     setSubmitError(null);
     try {
-      // ВАЖНО: раньше сюда передавался client_id, а такой колонки в таблице
-      // responses нет вообще — insert всегда падал с ошибкой Postgres
-      // "column responses.client_id does not exist", и отклик никогда не
-      // сохранялся. Клиент заказа и так виден через order_id -> orders.client_id
-      // (см. RLS-политику "Clients can view responses to their orders"),
-      // отдельно хранить его здесь не нужно. Колонка budget добавлена
-      // миграцией 004_fix_responses_budget_column.sql.
       const { error } = await supabase
         .from('responses')
         .insert({
@@ -160,7 +235,6 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
       if (error) throw error;
 
-      // Обновляем список откликов
       await loadOrder();
       setShowResponseForm(false);
       setResponseMessage('');
@@ -224,6 +298,15 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     );
   }
 
+  // Прямой контакт с заказчиком в Telegram — если у него нет username,
+  // диплинк построить нельзя, показываем заглушку вместо мёртвой кнопки.
+  const clientUsername = order.client?.username?.replace(/^@/, '') || '';
+  const clientTgUrl = clientUsername
+    ? `https://t.me/${clientUsername}?text=${encodeURIComponent(
+        `Здравствуйте! Пишу по поводу заказа «${order.title}» на бирже 1337.`
+      )}`
+    : null;
+
   return (
     <div className="space-y-3 pb-20">
       {/* Navigation */}
@@ -237,13 +320,46 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </motion.button>
         </Link>
         <div className="flex items-center gap-2">
-          <button className="p-2 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors">
-            <Bookmark className="w-4 h-4 text-slate-500" />
+          <button
+            type="button"
+            onClick={handleToggleBookmark}
+            title={isBookmarked ? "Убрать из сохранённых" : "Сохранить заказ"}
+            className={`p-2 rounded-xl border transition-colors ${
+              isBookmarked
+                ? "bg-violet-600 border-violet-600 text-white"
+                : "bg-white border-slate-200 hover:border-violet-300"
+            }`}
+          >
+            <Bookmark className={`w-4 h-4 ${isBookmarked ? "fill-white" : "text-slate-500"}`} />
           </button>
-          <button className="p-2 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors">
-            <Share2 className="w-4 h-4 text-slate-500" />
-          </button>
-          <button className="p-2 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={handleShare}
+              title="Поделиться"
+              className="p-2 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors"
+            >
+              <Share2 className="w-4 h-4 text-slate-500" />
+            </button>
+            <AnimatePresence>
+              {shareCopied && (
+                <motion.span
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute top-full right-0 mt-1.5 text-[10px] font-bold text-white bg-slate-900 px-2 py-1 rounded-lg whitespace-nowrap z-10"
+                >
+                  Ссылка скопирована
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+          <button
+            type="button"
+            onClick={handleReport}
+            title="Пожаловаться"
+            className="p-2 rounded-xl bg-white border border-slate-200 hover:border-rose-300 transition-colors"
+          >
             <Flag className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -256,16 +372,16 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.04)] space-y-4"
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-extrabold text-slate-900">
+              <h1 className="text-lg font-extrabold text-slate-900 break-words">
                 {order.title}
               </h1>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getStatusColor(order.status)}`}>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${getStatusColor(order.status)}`}>
                 {getStatusText(order.status)}
               </span>
             </div>
-            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
               <span className="flex items-center gap-1">
                 <Tag className="w-3.5 h-3.5" />
                 <span>{order.category}</span>
@@ -289,27 +405,38 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
         {/* Client Info */}
         <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100">
-          <div className="w-10 h-10 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold shrink-0">
             {order.client?.first_name?.[0] || 'А'}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-extrabold text-slate-900">
+              <span className="text-sm font-extrabold text-slate-900 truncate">
                 {order.client?.first_name || 'Заказчик'}
               </span>
               {order.client?.rating && (
-                <span className="flex items-center gap-0.5 text-xs">
+                <span className="flex items-center gap-0.5 text-xs shrink-0">
                   <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                   <span className="font-bold text-slate-900">{order.client.rating}</span>
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-400 font-medium">@{order.client?.username || 'client'}</p>
+            <p className="text-xs text-slate-400 font-medium truncate">@{order.client?.username || 'client'}</p>
           </div>
-          <button className="text-xs font-bold text-violet-600 bg-white px-3 py-1.5 rounded-xl border border-violet-200 hover:bg-violet-50 transition-colors">
-            <MessageSquare className="w-3.5 h-3.5 inline mr-1" />
-            <span>Написать</span>
-          </button>
+          {clientTgUrl ? (
+            
+              href={clientTgUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-bold text-violet-600 bg-white px-3 py-1.5 rounded-xl border border-violet-200 hover:bg-violet-50 transition-colors flex items-center gap-1 shrink-0"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Написать</span>
+            </a>
+          ) : (
+            <span className="text-[10.5px] font-medium text-slate-400 shrink-0 max-w-[110px] text-right leading-tight">
+              Username не указан
+            </span>
+          )}
         </div>
 
         {/* Description */}
@@ -318,7 +445,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             <FileText className="w-4 h-4 text-violet-600" />
             Описание задачи
           </h2>
-          <div className="bg-slate-50 rounded-2xl p-3.5 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap border border-slate-100">
+          <div className="bg-slate-50 rounded-2xl p-3.5 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap border border-slate-100 max-h-72 overflow-y-auto">
             {order.description || 'Описание отсутствует'}
           </div>
         </div>
@@ -374,6 +501,12 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             </button>
           )}
         </div>
+
+        {responseActionError && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl p-2.5">
+            {responseActionError}
+          </div>
+        )}
 
         {/* Response Form */}
         <AnimatePresence>
@@ -472,74 +605,21 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2.5"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold text-sm">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-bold text-sm shrink-0">
                       {response.executor?.first_name?.[0] || 'И'}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-extrabold text-slate-900">
+                        <span className="text-sm font-extrabold text-slate-900 truncate">
                           {response.executor?.first_name || 'Исполнитель'}
                         </span>
                         {response.executor?.rating && (
-                          <span className="flex items-center gap-0.5 text-[11px]">
+                          <span className="flex items-center gap-0.5 text-[11px] shrink-0">
                             <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                             <span className="font-bold text-slate-900">{response.executor.rating}</span>
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-400 font-medium">
+                      <p className="text-[11px] text-slate-400 font-medium truncate">
                         @{response.executor?.username || 'executor'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="text-right shrink-0">
-                    <div className="text-sm font-extrabold text-violet-700">
-                      {response.budget?.toLocaleString()} ₽
-                    </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      response.status === 'accepted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                      response.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-200' :
-                      'bg-amber-50 text-amber-700 border-amber-200'
-                    }`}>
-                      {response.status === 'accepted' ? 'Принят' :
-                       response.status === 'rejected' ? 'Отклонен' :
-                       'На рассмотрении'}
-                    </span>
-                  </div>
-                </div>
-
-                <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                  {response.message}
-                </p>
-
-                <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
-                  <span className="text-[10px] text-slate-400 font-medium">
-                    {new Date(response.created_at).toLocaleDateString('ru-RU', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </span>
-
-                  {role === 'client' && response.status === 'pending' && (
-                    <div className="flex gap-1.5">
-                      <button className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors" title="Принять">
-                        <CheckCircle className="w-4 h-4" />
-                      </button>
-                      <button className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 transition-colors" title="Отклонить">
-                        <XCircle className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            ))
-          )}
-        </div>
-      </motion.div>
-    </div>
-  );
-}
