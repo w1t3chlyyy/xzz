@@ -147,7 +147,22 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const loadOrder = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Загружаем заказ из Supabase
+      // 1. Пробуем загрузить через серверный API роут (с полными контактами и откликами)
+      try {
+        const res = await fetch(`/api/orders/${params.id}`);
+        if (res.ok) {
+          const apiData = await res.json();
+          if (apiData.order) {
+            setOrder(apiData.order);
+            setResponses(apiData.responses || []);
+            return;
+          }
+        }
+      } catch (apiErr) {
+        console.warn("Could not fetch order from /api/orders/[id]:", apiErr);
+      }
+
+      // 2. Fallback: Загружаем заказ из Supabase
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
         .select(
@@ -155,7 +170,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           *,
           client:client_id (
             first_name,
-            username
+            username,
+            telegram_id
           )
         `
         )
@@ -175,7 +191,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
         setOrder(orderData);
       }
 
-      // 2. Загружаем отклики из Supabase
+      // 3. Загружаем отклики из Supabase
       const { data: responsesData } = await supabase
         .from("responses")
         .select(
@@ -183,7 +199,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           *,
           executor:executor_id (
             first_name,
-            username
+            username,
+            telegram_id
           )
         `
         )
@@ -283,15 +300,23 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  // Действие заказчика: принять/отклонить отклик исполнителя
+  // Действие заказчика: принять/отклонить отклик исполнителя (с отправкой уведомления исполнителю в Telegram-бота)
   const handleUpdateResponseStatus = async (responseId: string, status: "accepted" | "rejected") => {
     setResponseActionError(null);
     const previous = responses;
     setResponses((prev) => prev.map((r) => (r.id === responseId ? { ...r, status } : r)));
 
     try {
-      const { error } = await supabase.from("responses").update({ status }).eq("id", responseId);
-      if (error) throw error;
+      const res = await fetch(`/api/responses/${responseId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!res.ok) {
+        const { error } = await supabase.from("responses").update({ status }).eq("id", responseId);
+        if (error) throw error;
+      }
     } catch (error) {
       console.error("Error updating response status:", error);
       try {
@@ -321,7 +346,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     }
   };
 
-  // Действие исполнителя: отправить отклик
+  // Действие исполнителя: отправить отклик (с отправкой уведомления заказчику в Telegram-бота)
   const handleSubmitResponse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!order) return;
@@ -341,7 +366,48 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 
       let insertedResponse: Response | null = null;
 
-      if (user) {
+      // 1. Отправляем через серверный API роут для надежной записи и мгновенной отправки уведомления в Telegram заказчика
+      try {
+        const res = await fetch("/api/responses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order_id: order.id,
+            executor_id: user?.id || null,
+            message: responseMessage.trim(),
+            budget: budgetNum,
+            days: parseInt(responseDays) || 3,
+            executor_name: currentExecutorName,
+            executor_username: currentExecutorUsername,
+            telegram_id: tg?.id || null,
+          }),
+        });
+
+        if (res.ok) {
+          const apiRes = await res.json();
+          if (apiRes.response) {
+            insertedResponse = {
+              id: apiRes.response.id,
+              order_id: order.id,
+              executor_id: apiRes.response.executor_id || user?.id,
+              message: apiRes.response.message,
+              budget: apiRes.response.budget,
+              status: apiRes.response.status || "pending",
+              created_at: apiRes.response.created_at || new Date().toISOString(),
+              executor: {
+                first_name: currentExecutorName,
+                username: currentExecutorUsername,
+                rating: 5.0,
+              },
+            };
+          }
+        }
+      } catch (apiErr) {
+        console.warn("API /api/responses failed, falling back to direct insert:", apiErr);
+      }
+
+      // 2. Direct Fallback
+      if (!insertedResponse && user) {
         try {
           await supabase
             .from("users")
@@ -699,9 +765,17 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <span>Написать заказчику</span>
               </a>
             ) : (
-              <div className="text-[11px] font-bold text-slate-400 bg-white/80 px-3 py-1.5 rounded-xl border border-slate-200">
-                Контакт скрыт
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResponseForm(true);
+                  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+                }}
+                className="btn-primary py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Откликнуться на заказ</span>
+              </button>
             )}
           </div>
         )}

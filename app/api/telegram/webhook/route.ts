@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { telegram } from "@/lib/telegram/bot-api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { telegramEntitiesToHtml, stripCommandWithEntities, type TelegramMessageEntity } from "@/lib/telegram/entities";
+import { notifyExecutorResponseStatus } from "@/lib/telegram/notifications";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -419,6 +420,67 @@ async function handleCallback(cq: any, supabase: AdminClient) {
   const userId: number = cq.from.id;
   const data: string = cq.data || "";
 
+  // 1. Обработка откликов на заказы (принятие/отказ заказчиком прямо в боте)
+  if (data.startsWith("resp_acc:") || data.startsWith("resp_rej:")) {
+    const isAccept = data.startsWith("resp_acc:");
+    const responseId = data.replace(/^resp_(acc|rej):/, "");
+
+    const result = await notifyExecutorResponseStatus(supabase, {
+      responseId,
+      status: isAccept ? "accepted" : "rejected",
+      reviewerTelegramId: userId,
+    });
+
+    if (result.ok && chatId && messageId) {
+      const execName = result.execUser?.first_name || "Специалист";
+      const execUsername = result.execUser?.username ? result.execUser.username.replace(/^@/, "") : "";
+      const orderTitle = result.order?.title || "Заказ";
+      const budgetText = result.response?.budget ? `${result.response.budget.toLocaleString("ru-RU")} ₽` : "";
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+
+      if (isAccept) {
+        const text =
+          `✅ <b>Вы приняли отклик от ${execName}!</b>\n\n` +
+          `📋 Заказ: <b>«${orderTitle}»</b>\n` +
+          (budgetText ? `💰 Согласованный бюджет: <b>${budgetText}</b>\n\n` : `\n`) +
+          `🤝 Свяжитесь с исполнителем в Telegram для старта работы.`;
+
+        const keyboard: any[][] = [];
+        const row: any[] = [];
+        if (execUsername) {
+          row.push({
+            text: `💬 Написать @${execUsername}`,
+            url: `https://t.me/${execUsername}`,
+          });
+        }
+        if (siteUrl && siteUrl.startsWith("https://")) {
+          row.push({
+            text: "📱 Открыть заказ",
+            web_app: { url: `${siteUrl}/orders/${result.order?.id}` },
+          });
+        }
+        if (row.length > 0) keyboard.push(row);
+
+        await telegram.editMessageText(chatId, messageId, text, {
+          reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined,
+        });
+      } else {
+        const text =
+          `❌ <b>Отклик от ${execName} отклонен.</b>\n\n` +
+          `📋 Заказ: <b>«${orderTitle}»</b>\n\n` +
+          `Вы можете выбрать другого специалиста из оставшихся откликов.`;
+
+        await telegram.editMessageText(chatId, messageId, text);
+      }
+    }
+
+    await telegram.answerCallbackQuery(cq.id, {
+      text: isAccept ? "✅ Отклик успешно принят!" : "❌ Отклик отклонен",
+    });
+    return;
+  }
+
+  // 2. Админские действия
   if (!isAdmin(userId)) {
     await telegram.answerCallbackQuery(cq.id, { text: "Нет доступа" });
     return;

@@ -3,23 +3,31 @@
 // потому что этот файл вызывается из serverless-роутов (по одному запросу за раз),
 // а не из долгоживущего процесса с polling.
 
-function getBotToken(): string {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not set");
-  return token;
+function getBotToken(): string | null {
+  return process.env.TELEGRAM_BOT_TOKEN || null;
 }
 
 async function call<T = any>(method: string, payload: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`https://api.telegram.org/bot${getBotToken()}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json();
-  if (!data.ok) {
-    console.error(`Telegram API "${method}" failed:`, data.description || data);
+  const token = getBotToken();
+  if (!token) {
+    console.warn(`Telegram API "${method}" skipped: TELEGRAM_BOT_TOKEN is not set`);
+    return { ok: false, description: "TELEGRAM_BOT_TOKEN is not set" } as T;
   }
-  return data as T;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      console.error(`Telegram API "${method}" failed:`, data.description || data);
+    }
+    return data as T;
+  } catch (err) {
+    console.error(`Telegram API "${method}" network error:`, err);
+    return { ok: false, description: String(err) } as T;
+  }
 }
 
 export const telegram = {

@@ -133,12 +133,145 @@ async function start() {
 
     if (!chatId || !data) return;
 
-    if (!isAdmin(userId)) {
-      await bot.answerCallbackQuery(query.id, { text: "Нет доступа" });
-      return;
-    }
-
     try {
+      // Обработка откликов на заказы (принятие/отказ заказчиком)
+      if (data.startsWith("resp_acc:") || data.startsWith("resp_rej:")) {
+        const isAccept = data.startsWith("resp_acc:");
+        const responseId = data.replace(/^resp_(acc|rej):/, "");
+
+        const { data: response } = await supabase
+          .from("responses")
+          .select("id, order_id, executor_id, budget, message, status")
+          .eq("id", responseId)
+          .maybeSingle();
+
+        if (response) {
+          const newStatus = isAccept ? "accepted" : "rejected";
+          await supabase.from("responses").update({ status: newStatus }).eq("id", responseId);
+
+          const { data: order } = await supabase
+            .from("orders")
+            .select("id, title, client_id, status")
+            .eq("id", response.order_id)
+            .maybeSingle();
+
+          if (isAccept && order?.status === "active") {
+            await supabase.from("orders").update({ status: "in_progress" }).eq("id", order.id);
+          }
+
+          const { data: clientUser } = await supabase
+            .from("users")
+            .select("id, telegram_id, first_name, username")
+            .eq("id", order?.client_id)
+            .maybeSingle();
+
+          const { data: execUser } = await supabase
+            .from("users")
+            .select("id, telegram_id, first_name, username")
+            .eq("id", response.executor_id)
+            .maybeSingle();
+
+          const execName = execUser?.first_name || "Специалист";
+          const execUsername = execUser?.username ? execUser.username.replace(/^@/, "") : "";
+          const clientName = clientUser?.first_name || "Заказчик";
+          const clientUsername = clientUser?.username ? clientUser.username.replace(/^@/, "") : "";
+          const orderTitle = order?.title || "Заказ";
+          const budgetText = response.budget ? `${response.budget.toLocaleString("ru-RU")} ₽` : "";
+          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+
+          // 1. Редактируем сообщение у заказчика
+          if (query.message?.message_id) {
+            if (isAccept) {
+              const text =
+                `✅ <b>Вы приняли отклик от ${execName}!</b>\n\n` +
+                `📋 Заказ: <b>«${orderTitle}»</b>\n` +
+                (budgetText ? `💰 Согласованный бюджет: <b>${budgetText}</b>\n\n` : `\n`) +
+                `🤝 Свяжитесь с исполнителем в Telegram для старта работы.`;
+
+              const keyboard: any[][] = [];
+              const row: any[] = [];
+              if (execUsername) {
+                row.push({ text: `💬 Написать @${execUsername}`, url: `https://t.me/${execUsername}` });
+              }
+              if (siteUrl && siteUrl.startsWith("https://")) {
+                row.push({ text: "📱 Открыть заказ", web_app: { url: `${siteUrl}/orders/${order?.id}` } });
+              }
+              if (row.length > 0) keyboard.push(row);
+
+              await bot.editMessageText(text, {
+                chat_id: chatId,
+                message_id: query.message.message_id,
+                parse_mode: "HTML",
+                reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined,
+              });
+            } else {
+              const text =
+                `❌ <b>Отклик от ${execName} отклонен.</b>\n\n` +
+                `📋 Заказ: <b>«${orderTitle}»</b>\n\n` +
+                `Вы можете выбрать другого специалиста из оставшихся откликов.`;
+
+              await bot.editMessageText(text, {
+                chat_id: chatId,
+                message_id: query.message.message_id,
+                parse_mode: "HTML",
+              });
+            }
+          }
+
+          // 2. Отправляем уведомление ИСПОЛНИТЕЛЮ в Telegram-бота
+          if (execUser?.telegram_id) {
+            if (isAccept) {
+              const acceptMsg =
+                `🎉 <b>Ваш отклик принят заказчиком!</b>\n\n` +
+                `Заказчик <b>${clientName}</b> ${clientUsername ? `(@${clientUsername})` : ""} принял ваше предложение по заказу:\n` +
+                `📋 <b>«${orderTitle}»</b>\n` +
+                (budgetText ? `💰 Согласованный бюджет: <b>${budgetText}</b>\n\n` : `\n`) +
+                `🚀 Свяжитесь с заказчиком в Telegram для уточнения деталей и старта работы!`;
+
+              const buttons: any[][] = [];
+              const actionRow: any[] = [];
+              if (clientUsername) {
+                actionRow.push({ text: "💬 Написать заказчику", url: `https://t.me/${clientUsername}` });
+              }
+              if (siteUrl && siteUrl.startsWith("https://")) {
+                actionRow.push({ text: "📱 Открыть заказ", web_app: { url: `${siteUrl}/orders/${order?.id}` } });
+              }
+              if (actionRow.length > 0) buttons.push(actionRow);
+
+              await bot.sendMessage(execUser.telegram_id, acceptMsg, {
+                parse_mode: "HTML",
+                reply_markup: buttons.length > 0 ? { inline_keyboard: buttons } : undefined,
+              });
+            } else {
+              const rejectMsg =
+                `ℹ️ <b>Статус вашего отклика обновлен</b>\n\n` +
+                `Заказчик отклонил ваше предложение по заказу:\n` +
+                `📋 <b>«${orderTitle}»</b>\n\n` +
+                `💪 Не расстраивайтесь! В ленте 1337 регулярно появляются новые интересные заказы.`;
+
+              const buttons: any[][] = [];
+              if (siteUrl && siteUrl.startsWith("https://")) {
+                buttons.push([{ text: "📋 Смотреть ленту заказов", web_app: { url: `${siteUrl}/feed` } }]);
+              }
+
+              await bot.sendMessage(execUser.telegram_id, rejectMsg, {
+                parse_mode: "HTML",
+                reply_markup: buttons.length > 0 ? { inline_keyboard: buttons } : undefined,
+              });
+            }
+          }
+        }
+
+        await bot.answerCallbackQuery(query.id, {
+          text: isAccept ? "✅ Отклик успешно принят!" : "❌ Отклик отклонен",
+        });
+        return;
+      }
+
+      if (!isAdmin(userId)) {
+        await bot.answerCallbackQuery(query.id, { text: "Нет доступа" });
+        return;
+      }
       if (data === "admin_stats") {
         const { count: usersCount } = await supabase
           .from("users")

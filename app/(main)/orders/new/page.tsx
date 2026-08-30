@@ -150,8 +150,34 @@ export default function NewOrderPage() {
 
       let insertedId: string | null = null;
 
-      if (user) {
-        // Гарантируем, что в таблице users сохранён контакт заказчика (username и first_name)
+      // 1. Создаем заказ через серверный API роут для надежности и обновления контактов
+      try {
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: finalTitle,
+            description,
+            category,
+            budget_min: budgetMin ? parseInt(budgetMin) : null,
+            budget_max: budgetMax ? parseInt(budgetMax) : null,
+            client_id: user?.id || null,
+            contact_username: finalUsername,
+            contact_name: finalName,
+            telegram_id: tgUser?.id || null,
+          }),
+        });
+
+        if (res.ok) {
+          const resData = await res.json();
+          insertedId = resData.order?.id || null;
+        }
+      } catch (apiErr) {
+        console.warn("API /api/orders failed, falling back to direct insert:", apiErr);
+      }
+
+      // 2. Фолбек на прямую вставку, если API не ответил
+      if (!insertedId && user) {
         try {
           await supabase
             .from("users")
@@ -180,13 +206,13 @@ export default function NewOrderPage() {
           .single();
 
         if (insertError) {
-          console.error("Error inserting order:", insertError);
+          console.error("Error inserting order directly:", insertError);
         } else {
           insertedId = inserted?.id ?? null;
         }
       }
 
-      // Сохраняем в локальный кэш для мгновенного отображения с заполненным контактом
+      // 3. Сохраняем в локальный кэш для мгновенного отображения с заполненным контактом
       if (insertedId) {
         const newLocalOrder = {
           id: insertedId,
@@ -445,6 +471,68 @@ export default function NewOrderPage() {
               />
             </div>
           </div>
+        </div>
+
+        {/* БЛОК КОНТАКТОВ ДЛЯ СВЯЗИ */}
+        <div className="bg-white rounded-3xl p-5 space-y-3.5 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+              <Send className="w-3.5 h-3.5 text-violet-600" />
+              <span>Контакты для связи (Telegram)</span>
+            </label>
+            <span className="text-[10px] font-bold text-violet-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100">
+              Видно исполнителям
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-500 leading-relaxed">
+            По этим данным исполнители смогут сразу написать вам в Telegram или отправить отклик в боте.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                Ваш Telegram Username
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">@</span>
+                <input
+                  type="text"
+                  value={contactUsername}
+                  onChange={(e) => setContactUsername(e.target.value.replace(/^@/, ""))}
+                  placeholder="username"
+                  className="w-full pl-8 pr-3.5 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-violet-600 focus:bg-white focus:outline-none text-xs font-bold"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                Ваше имя или никнейм
+              </label>
+              <input
+                type="text"
+                value={contactName}
+                onChange={(e) => setContactName(e.target.value)}
+                placeholder="Например: Александр"
+                className="w-full p-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-violet-600 focus:bg-white focus:outline-none text-xs font-medium"
+              />
+            </div>
+          </div>
+
+          {contactUsername ? (
+            <div className="p-3 bg-purple-50/70 border border-purple-100 rounded-2xl flex items-center gap-2 text-xs text-violet-800">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                Кнопка прямой связи в задании: <b>t.me/{contactUsername.replace(/^@/, "")}</b>
+              </span>
+            </div>
+          ) : (
+            <div className="p-3 bg-amber-50/80 border border-amber-200/70 rounded-2xl flex items-center gap-2 text-xs text-amber-800">
+              <Info className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Укажите ваш @username в Telegram, чтобы специалисты могли написать вам напрямую.</span>
+            </div>
+          )}
         </div>
 
         <button
