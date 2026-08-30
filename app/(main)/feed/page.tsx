@@ -57,6 +57,14 @@ export default function FeedPage() {
   const [userRole, setUserRole] = useState<string>("client");
   const [clientTab, setClientTab] = useState<"executors" | "orders" | "my_orders">("executors");
   const [isLoading, setIsLoading] = useState(true);
+  // Роль определяется асинхронно (сначала localStorage, потом уточняется на
+  // сервере). Раньше loadItems() запускался сразу с ролью по умолчанию
+  // ("client"), и на долю секунды в items успевали попасть объекты-
+  // специалисты, которые затем рендерились через <OrderCard> (если реальная
+  // роль — executor) — категория/дата были пустыми, а клик по такой
+  // "заготовке" вёл на /orders/<id_пользователя>, которого не существует.
+  // Флаг ниже не даёт loadItems запуститься, пока роль не определена точно.
+  const [isRoleResolved, setIsRoleResolved] = useState(false);
   const [showPromoBanner, setShowPromoBanner] = useState(true);
   const [isBookmarkedOnly, setIsBookmarkedOnly] = useState(false);
   const [myOrders, setMyOrders] = useState<Order[]>([]);
@@ -81,11 +89,16 @@ export default function FeedPage() {
       }
     } catch {
       // Default fallback
+    } finally {
+      setIsRoleResolved(true);
     }
   }, [supabase]);
 
   const loadItems = useCallback(async () => {
     setIsLoading(true);
+    // Сразу очищаем items — чтобы во время загрузки ни при каких условиях
+    // не показать (и не дать кликнуть на) данные предыдущего типа/роли.
+    setItems([]);
 
     try {
       // Локальный кэш заказов клиента — используем самоочищающийся хелпер:
@@ -187,8 +200,12 @@ export default function FeedPage() {
   }, [loadUserRole]);
 
   useEffect(() => {
+    // Ждём, пока роль будет точно определена — иначе первый запрос уйдёт
+    // с ролью по умолчанию и результат может на мгновение не совпасть
+    // с тем, что реально нужно рендерить (см. комментарий у isRoleResolved).
+    if (!isRoleResolved) return;
     loadItems();
-  }, [loadItems]);
+  }, [isRoleResolved, loadItems]);
 
   const isClient = userRole === "client";
 
