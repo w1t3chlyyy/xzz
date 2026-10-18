@@ -4,16 +4,39 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { calculateTimeLeft, TRIAL_DURATION_MS, SubscriptionStatus } from "./subscription";
+import { getTelegramUser } from "./telegram/webapp";
+
+const TRIAL_STORAGE_KEY = "1337_trial_started_at";
+const EXPIRED_NOTIFIED_KEY = "1337_expired_notified";
+
+function getLocalTrialStart(): number {
+  if (typeof window === "undefined") return Date.now();
+  try {
+    const saved = localStorage.getItem(TRIAL_STORAGE_KEY);
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    const now = Date.now();
+    localStorage.setItem(TRIAL_STORAGE_KEY, String(now));
+    return now;
+  } catch {
+    return Date.now();
+  }
+}
 
 function defaultStatus(): SubscriptionStatus {
+  const trialStartedAt = getLocalTrialStart();
+  const trialExpiresAt = trialStartedAt + TRIAL_DURATION_MS;
   const now = Date.now();
-  const trialExpiresAt = now + TRIAL_DURATION_MS;
+  const isTrialActive = now < trialExpiresAt;
+
   return {
     tier: "free",
-    isTrialActive: true,
+    isTrialActive,
     isPaid: false,
-    hasAccess: true,
-    trialStartedAt: now,
+    hasAccess: isTrialActive,
+    trialStartedAt,
     trialExpiresAt,
     paidExpiresAt: null,
     timeLeft: calculateTimeLeft(trialExpiresAt),
@@ -23,6 +46,7 @@ function defaultStatus(): SubscriptionStatus {
 export function useSubscription(): SubscriptionStatus & { refresh: () => void } {
   const [status, setStatus] = useState<SubscriptionStatus>(defaultStatus);
   const supabaseRef = useRef(createClient());
+  const notifiedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const supabase = supabaseRef.current;
@@ -31,35 +55,62 @@ export function useSubscription(): SubscriptionStatus & { refresh: () => void } 
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (!user) {
-        setStatus(defaultStatus());
-        return;
+      const localStart = getLocalTrialStart();
+      let trialStartedAt = localStart;
+      let paidExpiresAt: number | null = null;
+      let tier: "free" | "pro" | "ai_pro" = "free";
+
+      if (user) {
+        const { data } = await supabase
+          .from("users")
+          .select("subscription_tier, subscription_expires_at, trial_started_at")
+          .eq("id", user.id)
+          .single();
+
+        if (data?.trial_started_at) {
+          trialStartedAt = new Date(data.trial_started_at).getTime();
+        }
+        if (data?.subscription_expires_at) {
+          paidExpiresAt = new Date(data.subscription_expires_at).getTime();
+        }
+        if (data?.subscription_tier) {
+          tier = data.subscription_tier as any;
+        }
       }
 
-      // Источник истины — база. trial_started_at выставляется один раз при
-      // первой авторизации через Telegram (см. app/api/auth/telegram/route.ts)
-      // и не сбрасывается очисткой localStorage.
-      const { data } = await supabase
-        .from("users")
-        .select("subscription_tier, subscription_expires_at, trial_started_at")
-        .eq("id", user.id)
-        .single();
-
       const now = Date.now();
-      const paidExpiresAt = data?.subscription_expires_at ? new Date(data.subscription_expires_at).getTime() : null;
-      const isPaid = !!data && data.subscription_tier !== "free" && (!paidExpiresAt || paidExpiresAt > now);
-
-      const trialStartedAt = data?.trial_started_at ? new Date(data.trial_started_at).getTime() : now;
+      const isPaid = (tier === "pro" || tier === "ai_pro") && (!paidExpiresAt || paidExpiresAt > now);
       const trialExpiresAt = trialStartedAt + TRIAL_DURATION_MS;
       const isTrialActive = now < trialExpiresAt;
+      const hasAccess = isPaid || isTrialActive;
 
       const targetTimestamp = isPaid && paidExpiresAt ? paidExpiresAt : trialExpiresAt;
 
+      // If access has just expired, notify the user via Telegram bot once
+      if (!hasAccess && !notifiedRef.current && typeof window !== "undefined") {
+        const alreadyNotified = localStorage.getItem(EXPIRED_NOTIFIED_KEY);
+        if (!alreadyNotified) {
+          const tg = getTelegramUser();
+          if (tg && tg.id) {
+            notifiedRef.current = true;
+            localStorage.setItem(EXPIRED_NOTIFIED_KEY, "true");
+            fetch("/api/subscription/expired-notify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                telegramId: tg.id,
+                userName: tg.displayName,
+              }),
+            }).catch(() => {});
+          }
+        }
+      }
+
       setStatus({
-        tier: isPaid ? (data!.subscription_tier as "pro" | "ai_pro") : "free",
+        tier: isPaid ? tier : "free",
         isTrialActive,
         isPaid,
-        hasAccess: isPaid || isTrialActive,
+        hasAccess,
         trialStartedAt,
         trialExpiresAt,
         paidExpiresAt,
@@ -73,7 +124,6 @@ export function useSubscription(): SubscriptionStatus & { refresh: () => void } 
   useEffect(() => {
     refresh();
 
-    // Тикающий таймер обратного отсчёта — раз в секунду, без запроса к серверу.
     const tick = setInterval(() => {
       setStatus((prev) => ({
         ...prev,
@@ -81,9 +131,7 @@ export function useSubscription(): SubscriptionStatus & { refresh: () => void } 
       }));
     }, 1000);
 
-    // Платежи подтверждаются асинхронно ботом/вебхуком CryptoBot, поэтому
-    // периодически синхронизируемся с базой, плюс сразу при возврате в приложение.
-    const resync = setInterval(refresh, 15000);
+    const resync = setInterval(refresh, 20000);
     const handleFocus = () => refresh();
     window.addEventListener("focus", handleFocus);
 

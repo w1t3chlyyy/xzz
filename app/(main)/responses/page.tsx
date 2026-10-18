@@ -248,8 +248,7 @@ export default function ResponsesPage() {
       ) : (
         <div className="space-y-3">
           {filteredResponses.map((response) => {
-            const execUsername = (response.executor?.username || "").replace(/^@/, "");
-            const tgUrl = execUsername ? `https://t.me/${execUsername}` : null;
+            const execDisplayName = response.executor?.first_name || "Специалист";
 
             return (
               <motion.div
@@ -265,7 +264,7 @@ export default function ResponsesPage() {
                         href={`/orders/${response.order_id}`}
                         className="text-xs font-extrabold text-slate-900 hover:text-violet-700 transition-colors"
                       >
-                        {response.order?.title || (role === "client" ? response.executor?.first_name : "Задание")}
+                        {response.order?.title || (role === "client" ? execDisplayName : "Задание")}
                       </Link>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getStatusColor(response.status)}`}>
                         {getStatusText(response.status)}
@@ -285,24 +284,25 @@ export default function ResponsesPage() {
                         <Calendar className="w-3.5 h-3.5" />
                         <span>{new Date(response.created_at).toLocaleDateString("ru-RU")}</span>
                       </span>
-                      {response.executor?.username && (
-                        <span className="font-bold text-slate-600">@{response.executor.username}</span>
-                      )}
+                      <span className="font-bold text-violet-600">{execDisplayName}</span>
                     </div>
                   </div>
 
                   <div className="flex flex-col items-end gap-2 shrink-0">
-                    {tgUrl && (
-                      <a
-                        href={tgUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-violet"
-                      >
-                        <Send className="w-3 h-3" />
-                        <span>В Telegram</span>
-                      </a>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        router.push(
+                          `/chats?name=${encodeURIComponent(execDisplayName)}&orderTitle=${encodeURIComponent(
+                            response.order?.title || "Задание"
+                          )}`
+                        )
+                      }
+                      className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-violet"
+                    >
+                      <MessageSquare className="w-3 h-3" />
+                      <span>В чат</span>
+                    </button>
                     <Link
                       href={`/orders/${response.order_id}`}
                       className="text-[10.5px] font-bold text-violet-600 hover:underline flex items-center gap-0.5"

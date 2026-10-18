@@ -50,7 +50,7 @@ const INITIAL_PROJECTS: PortfolioProject[] = [
     description: "Полнофункциональное Mini App приложение с авторизацией через Telegram, колесом фортуны и выплатами призов через Stars и TON API.",
     category: "programming",
     tags: ["Next.js", "TypeScript", "TON API", "Tailwind"],
-    link: "https://t.me/demo_roulette_bot",
+    link: "https://t.me/roulette_case_bot",
     budget: "45 000 ₽",
     date: "Февраль 2026",
   },
@@ -60,7 +60,7 @@ const INITIAL_PROJECTS: PortfolioProject[] = [
     description: "Telegram-бот с интеграцией Gemini AI для автоматической квалификации клиентов, ответов на частые вопросы и записи в CRM базу.",
     category: "programming",
     tags: ["Python", "aiogram 3", "Gemini AI", "PostgreSQL"],
-    link: "https://t.me/demo_ai_crm_bot",
+    link: "https://t.me/leadgen_crm_bot",
     budget: "32 000 ₽",
     date: "Январь 2026",
   },
@@ -338,7 +338,7 @@ export default function PortfolioPage() {
                   <h3 className="font-extrabold text-base text-slate-900">{name}</h3>
                   <ShieldCheck className="w-4 h-4 text-violet-600" />
                 </div>
-                <p className="text-slate-400 text-xs font-medium">@{username}</p>
+                <p className="text-slate-400 text-xs font-medium">Специалист 1337</p>
                 <p className="text-violet-700 text-xs font-bold mt-0.5">{specialization}</p>
               </div>
             </div>
@@ -651,7 +651,7 @@ export default function PortfolioPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-900 mb-1">
-                      Ссылка на демо / бота / GitHub
+                      Ссылка на проект / бота / кейс
                     </label>
                     <input
                       type="url"

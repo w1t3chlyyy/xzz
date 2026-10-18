@@ -1,13 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+import { Montserrat, Unbounded, JetBrains_Mono } from "next/font/google";
 import { TelegramInitializer } from "@/components/TelegramInitializer";
 import "./globals.css";
 
-const plusJakarta = Plus_Jakarta_Sans({
-  subsets: ["latin", "cyrillic-ext"],
-  weight: ["300", "400", "500", "600", "700", "800"],
-  variable: "--font-sans",
+const unbounded = Unbounded({
+  subsets: ["latin", "cyrillic"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-unbounded",
+  display: "swap",
+});
+
+const montserrat = Montserrat({
+  subsets: ["latin", "cyrillic", "cyrillic-ext"],
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  variable: "--font-montserrat",
   display: "swap",
 });
 
@@ -37,7 +44,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" suppressHydrationWarning className={`${plusJakarta.variable} ${jetbrainsMono.variable}`}>
+    <html lang="ru" suppressHydrationWarning className={`${unbounded.variable} ${montserrat.variable} ${jetbrainsMono.variable}`}>
       <head>
         <Script
           src="https://telegram.org/js/telegram-web-app.js"

@@ -12,7 +12,7 @@ import {
   Bookmark,
   Wallet,
   Layers,
-  Send,
+  MessageCircle,
   Clock,
   MessageSquare,
 } from "lucide-react";
@@ -31,7 +31,7 @@ export interface Order {
   created_at: string;
   client: {
     first_name: string;
-    username: string;
+    username?: string;
   };
 }
 
@@ -125,14 +125,14 @@ export function OrderCard({ order }: OrderCardProps) {
     budgetText = `от ${order.budget_min.toLocaleString("ru-RU")} ₽`;
   }
 
-  const rawUsername = (order.client?.username || "").replace(/^@/, "");
-  const displayUsername = rawUsername ? `@${rawUsername}` : "@заказчик";
-
+  const clientName = order.client?.first_name || "Заказчик";
   const isInProgress = order.status === "in_progress";
   const pendingCount = order.pending_responses_count ?? 0;
 
-  const tgMessage = `Здравствуйте! Заинтересовал ваш заказ "${order.title}" на бирже 1337, хочу обсудить детали.`;
-  const tgUrl = rawUsername ? `https://t.me/${rawUsername}?text=${encodeURIComponent(tgMessage)}` : null;
+  const handleOpenChat = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    router.push(`/chats?name=${encodeURIComponent(clientName)}&orderTitle=${encodeURIComponent(order.title)}`);
+  };
 
   return (
     <motion.div
@@ -186,7 +186,7 @@ export function OrderCard({ order }: OrderCardProps) {
         </button>
       </div>
 
-      {/* 2. Compact Title & Description */}
+      {/* 2. Title & Description */}
       <div className="space-y-1.5">
         <h4 className="font-extrabold text-[14.5px] text-slate-900 leading-snug group-hover:text-violet-700 transition-colors line-clamp-2">
           {order.title || "Задание без названия"}
@@ -196,7 +196,7 @@ export function OrderCard({ order }: OrderCardProps) {
         </p>
       </div>
 
-      {/* 3. Footer Line: Budget & Author / Direct Action with breathing room to edges */}
+      {/* 3. Footer Line: Budget & Author / Open Chat (ONLY NAME, NO USERNAME) */}
       <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
         <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 text-slate-900 font-extrabold text-xs px-2.5 py-1 rounded-xl">
           <Wallet className="w-3.5 h-3.5 text-violet-600" />
@@ -204,22 +204,18 @@ export function OrderCard({ order }: OrderCardProps) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
-            {formatDateTime(order.created_at)} • {displayUsername}
+          <span className="text-[11px] text-slate-500 font-bold hidden sm:inline">
+            {clientName}
           </span>
 
-          {tgUrl && !isInProgress && (
-            <a
-              href={tgUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-violet transition-transform active:scale-95"
-            >
-              <Send className="w-3 h-3" />
-              <span>Написать</span>
-            </a>
-          )}
+          <button
+            type="button"
+            onClick={handleOpenChat}
+            className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1.5 shadow-violet transition-transform active:scale-95"
+          >
+            <MessageCircle className="w-3 h-3" />
+            <span>В чат</span>
+          </button>
         </div>
       </div>
     </motion.div>

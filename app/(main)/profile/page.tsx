@@ -100,9 +100,9 @@ export default function ProfilePage() {
       } else {
         // Fallback using real extracted Telegram profile if available
         setProfile({
-          id: extractedTg?.id ? String(extractedTg.id) : "demo-user",
+          id: extractedTg?.id ? String(extractedTg.id) : "user-1337",
           first_name: extractedTg?.displayName || (savedRole === "client" ? "Иван" : "Алексей"),
-          username: extractedTg?.username || (savedRole === "client" ? "ivan_client" : "alex_dev"),
+          username: extractedTg?.username || (savedRole === "client" ? "ivan" : "alex"),
           avatar_url: extractedTg?.photo_url || null,
           role: savedRole,
           subscription_tier: "free",
@@ -115,9 +115,9 @@ export default function ProfilePage() {
       const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
       const extractedTg = getTelegramUser();
       setProfile({
-        id: extractedTg?.id ? String(extractedTg.id) : "demo-user",
+        id: extractedTg?.id ? String(extractedTg.id) : "user-1337",
         first_name: extractedTg?.displayName || (savedRole === "client" ? "Иван" : "Алексей"),
-        username: extractedTg?.username || (savedRole === "client" ? "ivan_client" : "alex_dev"),
+        username: extractedTg?.username || (savedRole === "client" ? "ivan" : "alex"),
         avatar_url: extractedTg?.photo_url || null,
         role: savedRole,
         subscription_tier: "free",
@@ -218,11 +218,7 @@ export default function ProfilePage() {
             </h2>
             <ShieldCheck className="w-4 h-4 text-violet-600" />
           </div>
-          {displayUsername ? (
-            <p className="text-slate-400 text-xs mt-0.5 font-medium">@{displayUsername}</p>
-          ) : (
-            <p className="text-slate-400 text-xs mt-0.5 font-medium">Telegram профиль подтвержден</p>
-          )}
+          <p className="text-slate-400 text-xs mt-0.5 font-medium">Профиль биржи 1337</p>
         </div>
 
         <div className="flex items-center justify-center gap-2 pt-1">
@@ -328,6 +324,30 @@ export default function ProfilePage() {
             <ArrowRight className="w-4 h-4 text-violet-700 group-hover:translate-x-0.5 transition-transform" />
           </Link>
         )}
+
+        {/* Exclusive Admin Panel for Admin / Exchange Owner */}
+        <Link
+          href="/admin"
+          className="w-full bg-gradient-to-r from-violet-600 to-indigo-700 text-white rounded-2xl p-3.5 flex items-center justify-between shadow-md shadow-violet-600/20 hover:opacity-95 transition-all group"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-amber-300 shadow-xs">
+              <Crown className="w-4 h-4 fill-amber-300 text-amber-300" />
+            </div>
+            <div className="text-left">
+              <div className="text-xs font-extrabold flex items-center gap-1.5">
+                <span>Панель Администратора</span>
+                <span className="bg-amber-400 text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded-md">
+                  1337
+                </span>
+              </div>
+              <p className="text-[10.5px] text-violet-100 font-medium">
+                Агенты поддержки, заказы и арбитраж
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-0.5 transition-transform" />
+        </Link>
       </div>
 
       {/* Subscription Plans */}

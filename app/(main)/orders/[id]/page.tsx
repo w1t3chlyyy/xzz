@@ -572,19 +572,13 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
   const isExecutorRole = role === "executor" && !isOwner;
 
   // Контактные данные заказчика
-  const clientUsername = (order.client?.username || "").replace(/^@/, "");
   const clientDisplayName = isOwner ? "Вы (Заказчик)" : order.client?.first_name || "Заказчик";
-  const clientTgMessage = `Здравствуйте! Пишу по поводу заказа "${order.title}" на бирже 1337. Хочу обсудить детали!`;
-  const clientTgUrl = clientUsername
-    ? `https://t.me/${clientUsername}?text=${encodeURIComponent(clientTgMessage)}`
-    : null;
 
   // Проверка отклика текущего исполнителя
-  const currentTgUsername = (tgUser?.username || "").replace(/^@/, "");
   const myResponse = responses.find(
     (r) =>
       (user?.id && r.executor_id === user.id) ||
-      (currentTgUsername && r.executor?.username === currentTgUsername)
+      (r.executor?.first_name && r.executor.first_name === (tgUser?.displayName || "Исполнитель"))
   );
 
   return (
@@ -661,7 +655,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
               <CheckCircle className="w-5 h-5 text-emerald-200 shrink-0" />
               <div>
                 <div className="text-xs font-extrabold">Отклик успешно отправлен!</div>
-                <div className="text-[11px] text-emerald-100">Заказчик увидит ваше предложение и свяжется с вами.</div>
+                <div className="text-[11px] text-emerald-100">Заказчик увидит ваше предложение и напишет в чат.</div>
               </div>
             </div>
           </motion.div>
@@ -702,9 +696,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </div>
         </div>
 
-        {/* БЛОК КОНТАКТА: РАЗДЕЛЕНИЕ ДЛЯ ЗАКАЗЧИКА И ИСПОЛНИТЕЛЯ */}
+        {/* БЛОК ДИАЛОГА: БЕЗОПАСНЫЙ ЧАТ 1337 (ТОЛЬКО ИМЯ, БЕЗ КОНТАКТОВ) */}
         {isClientRole ? (
-          /* ДЛЯ ЗАКАЗЧИКА: информация о его контакте */
           <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-100 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-sm shadow-xs shrink-0">
@@ -715,29 +708,21 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   <span className="text-sm font-extrabold text-slate-900 truncate">{clientDisplayName}</span>
                   <span className="badge-violet text-[9px] font-bold px-1.5 py-0.2 rounded">Ваш заказ</span>
                 </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="text-xs text-slate-500 font-bold truncate">
-                    {clientUsername ? `@${clientUsername}` : "Telegram не указан"}
-                  </span>
-                  {clientUsername && (
-                    <button
-                      type="button"
-                      onClick={() => handleCopyContact(clientUsername)}
-                      title="Скопировать"
-                      className="p-1 text-slate-400 hover:text-violet-600 transition-colors"
-                    >
-                      {contactCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                    </button>
-                  )}
-                </div>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Общение по сделке ведется в официальном чате
+                </p>
               </div>
             </div>
-            <span className="text-[10.5px] font-bold text-violet-700 bg-white px-2.5 py-1 rounded-xl border border-purple-100">
-              Исполнители видят этот контакт
-            </span>
+            <button
+              type="button"
+              onClick={() => router.push(`/chats?orderTitle=${encodeURIComponent(order.title)}`)}
+              className="btn-primary py-2 px-3 rounded-xl text-xs font-bold shrink-0 shadow-violet flex items-center gap-1.5"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Открыть чат</span>
+            </button>
           </div>
         ) : (
-          /* ДЛЯ ИСПОЛНИТЕЛЯ: кнопка «Написать заказчику» */
           <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-violet-50 to-slate-50 border border-purple-100 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-11 h-11 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-base shadow-xs shrink-0">
@@ -748,47 +733,24 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                   <span className="text-sm font-extrabold text-slate-900 truncate">{clientDisplayName}</span>
                   <span className="badge-violet text-[9px] font-bold px-1.5 py-0.2 rounded">Заказчик</span>
                 </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="text-xs text-slate-500 font-bold truncate">
-                    {clientUsername ? `@${clientUsername}` : "Telegram профиль"}
-                  </span>
-                  {clientUsername && (
-                    <button
-                      type="button"
-                      onClick={() => handleCopyContact(clientUsername)}
-                      title="Скопировать username"
-                      className="p-1 text-slate-400 hover:text-violet-600 transition-colors"
-                    >
-                      {contactCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                    </button>
-                  )}
-                </div>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Безопасный диалог внутри биржи 1337
+                </p>
               </div>
             </div>
 
-            {clientTgUrl ? (
-              <a
-                href={clientTgUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-primary py-2 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Написать заказчику</span>
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowResponseForm(true);
-                  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-                }}
-                className="btn-primary py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Откликнуться на заказ</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/chats?name=${encodeURIComponent(clientDisplayName)}&orderTitle=${encodeURIComponent(order.title)}`
+                )
+              }
+              className="btn-primary py-2 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Написать в чат</span>
+            </button>
           </div>
         )}
 
@@ -876,20 +838,18 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
           </div>
 
           <div className="flex items-center justify-between text-xs pt-0.5">
-            <span className="font-extrabold text-violet-700">
-              Предложенная стоимость: {myResponse.budget.toLocaleString()} ₽
-            </span>
-            {clientTgUrl && (
-              <a
-                href={clientTgUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[11px] font-bold text-violet-600 hover:underline inline-flex items-center gap-1"
-              >
-                <span>Написать заказчику в TG</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/chats?name=${encodeURIComponent(clientDisplayName)}&orderTitle=${encodeURIComponent(order.title)}`
+                )
+              }
+              className="text-[11px] font-bold text-violet-600 hover:underline inline-flex items-center gap-1"
+            >
+              <MessageSquare className="w-3 h-3" />
+              <span>Обсудить в чате</span>
+            </button>
           </div>
         </motion.div>
       )}
@@ -1020,10 +980,10 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                 <div className="flex items-center gap-2">
                   <User className="w-3.5 h-3.5 text-violet-600" />
                   <span>
-                    Ваш контакт: <b>@{currentTgUsername || "executor_tg"}</b>
+                    Отклик от: <b>{tgUser?.displayName || "Исполнитель"}</b>
                   </span>
                 </div>
-                <span className="text-slate-400 font-medium">Подтянут из профиля</span>
+                <span className="text-slate-400 font-medium">Безопасный чат 1337</span>
               </div>
 
               <div className="flex gap-2 pt-1">
@@ -1063,10 +1023,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             </div>
           ) : (
             responses.map((resp, index) => {
-              const execUsername = (resp.executor?.username || "").replace(/^@/, "");
               const execDisplayName = resp.executor?.first_name || "Исполнитель";
-              const execTgMsg = `Здравствуйте, ${execDisplayName}! Пишу по поводу вашего отклика на заказ "${order.title}" на бирже 1337.`;
-              const execTgUrl = execUsername ? `https://t.me/${execUsername}?text=${encodeURIComponent(execTgMsg)}` : null;
 
               return (
                 <motion.div
@@ -1096,8 +1053,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                             </span>
                           ) : null}
                         </div>
-                        <p className="text-[11px] text-slate-400 font-medium truncate">
-                          @{execUsername || "anonymous"}
+                        <p className="text-[11px] text-violet-600 font-medium truncate">
+                          Специалист 1337
                         </p>
                       </div>
                     </div>
@@ -1134,17 +1091,22 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                     </span>
 
                     <div className="flex items-center gap-1.5">
-                      {/* Кнопка написать исполнителю в Telegram (доступна заказчику) */}
-                      {isClientRole && execTgUrl && (
-                        <a
-                          href={execTgUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                      {/* Кнопка написать исполнителю в ЧАТ (доступна заказчику) */}
+                      {isClientRole && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              `/chats?name=${encodeURIComponent(execDisplayName)}&orderTitle=${encodeURIComponent(
+                                order.title
+                              )}`
+                            )
+                          }
                           className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-violet"
                         >
-                          <Send className="w-3 h-3" />
-                          <span>Написать в TG</span>
-                        </a>
+                          <MessageSquare className="w-3 h-3" />
+                          <span>В чат</span>
+                        </button>
                       )}
 
                       {/* Кнопки Принять/Отклонить: доступны ТОЛЬКО заказчику */}
@@ -1201,19 +1163,22 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
             </button>
           </div>
         ) : (
-          /* ДЛЯ ИСПОЛНИТЕЛЯ: Кнопки «Написать заказчику» и «Откликнуться» */
+          /* ДЛЯ ИСПОЛНИТЕЛЯ: Кнопки «В чат» и «Откликнуться» */
           <div className="flex items-center gap-2">
-            {clientTgUrl && (
-              <a
-                href={clientTgUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3.5 py-2.5 rounded-2xl bg-purple-50 text-violet-700 border border-purple-200 hover:bg-purple-100 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Написать</span>
-              </a>
-            )}
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/chats?name=${encodeURIComponent(clientDisplayName)}&orderTitle=${encodeURIComponent(
+                    order.title
+                  )}`
+                )
+              }
+              className="px-3.5 py-2.5 rounded-2xl bg-purple-50 text-violet-700 border border-purple-200 hover:bg-purple-100 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>В чат</span>
+            </button>
 
             {!myResponse && order.status === "active" ? (
               <button

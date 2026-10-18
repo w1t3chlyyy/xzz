@@ -8,6 +8,11 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-montserrat)", "Montserrat", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        heading: ["var(--font-unbounded)", "Unbounded", "var(--font-montserrat)", "Montserrat", "sans-serif"],
+        mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
+      },
       colors: {
         violet: {
           primary: "#7C3AED",

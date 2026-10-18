@@ -170,7 +170,7 @@ export default function HomePage() {
 />
         {tgUser ? (
           <p className="text-violet-700 font-bold text-xs mt-1">
-            Привет, {tgUser.displayName}! {tgUser.displayUsername && <span className="text-slate-400 font-medium">({tgUser.displayUsername})</span>}
+            Привет, {tgUser.displayName}!
           </p>
         ) : (
           <p className="text-slate-500 text-xs mt-1.5 max-w-xs mx-auto leading-relaxed">

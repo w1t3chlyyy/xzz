@@ -1,12 +1,13 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Star, CheckCircle2, ShieldCheck, Send, Briefcase, Zap } from "lucide-react";
+import { Star, CheckCircle2, ShieldCheck, MessageCircle, Briefcase, Zap } from "lucide-react";
 
 interface Executor {
   id: string;
   first_name: string;
-  username: string;
+  username?: string;
   avatar_url: string | null;
   executor_profiles: {
     skills: string[];
@@ -23,6 +24,7 @@ interface ExecutorCardProps {
 }
 
 export function ExecutorCard({ executor }: ExecutorCardProps) {
+  const router = useRouter();
   const profile = executor.executor_profiles || {
     skills: [],
     bio: "",
@@ -30,29 +32,39 @@ export function ExecutorCard({ executor }: ExecutorCardProps) {
     completed_orders: 0,
   };
 
-  const username = executor.username || "tg_expert";
-  const tgUrl = `https://t.me/${username.replace("@", "")}?text=${encodeURIComponent(
-    "Привет! Нашел твою анкету на фриланс-бирже 1337, хочу обсудить проект."
-  )}`;
+  const displayName = executor.first_name || "Специалист";
+
+  const handleOpenChat = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    router.push(`/chats?name=${encodeURIComponent(displayName)}`);
+  };
 
   return (
     <motion.div
       whileTap={{ scale: 0.985 }}
-      className="bg-white rounded-3xl p-4.5 space-y-3 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_25px_rgba(124,58,237,0.06)] hover:border-purple-200/80 transition-all duration-200"
+      onClick={handleOpenChat}
+      className="cursor-pointer bg-white rounded-3xl p-4.5 space-y-3 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_25px_rgba(124,58,237,0.06)] hover:border-purple-200/80 transition-all duration-200"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-base shadow-sm">
-              {executor.first_name?.[0] || username[0]?.toUpperCase() || "U"}
-            </div>
+            {executor.avatar_url ? (
+              <div className="w-12 h-12 rounded-2xl overflow-hidden border border-slate-200">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={executor.avatar_url} alt={displayName} className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-base shadow-sm">
+                {displayName[0] || "С"}
+              </div>
+            )}
             <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white" />
           </div>
 
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <h3 className="font-extrabold text-slate-900 text-sm truncate">
-                {executor.first_name || `@${username}`}
+                {displayName}
               </h3>
               <ShieldCheck className="w-4 h-4 text-violet-600 shrink-0" />
             </div>
@@ -105,16 +117,14 @@ export function ExecutorCard({ executor }: ExecutorCardProps) {
           <span className="font-bold text-slate-900 text-xs">от 1 500 ₽</span> / час
         </div>
 
-        <a
-          href={tgUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="btn-primary py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0"
+        <button
+          type="button"
+          onClick={handleOpenChat}
+          className="btn-primary py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
         >
-          <Send className="w-3.5 h-3.5" />
-          <span>Написать в TG</span>
-        </a>
+          <MessageCircle className="w-3.5 h-3.5" />
+          <span>Написать в чат</span>
+        </button>
       </div>
     </motion.div>
   );
