@@ -133,14 +133,14 @@ export function Hero() {
       </header>
 
       {/* Видео на весь блок. ПК: модель справа внизу. Моб.: растянуто на весь блок, модель по центру */}
-      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+      <div className="absolute inset-0 lg:top-24 lg:left-auto lg:w-[92%] z-0 overflow-hidden pointer-events-none lg:[mask-image:linear-gradient(to_right,transparent,black_14%)]">
         <video
           ref={videoRef}
           src={VIDEO}
           muted
           playsInline
           preload="auto"
-          className="w-full h-full object-cover object-center lg:object-right-bottom"
+          className="w-full h-full object-cover object-center lg:object-right-top max-lg:scale-[1.3] max-lg:-translate-x-[12%]"
         />
       </div>
 
@@ -148,7 +148,7 @@ export function Hero() {
       <div className="absolute inset-x-0 bottom-0 h-[55%] lg:h-[45%] z-[5] pointer-events-none bg-gradient-to-t from-white from-25% via-white/80 via-55% to-transparent" />
 
       {/* Весь текст и кнопки — внизу, поверх градиента */}
-      <div className="relative z-10 flex-1 flex flex-col justify-end w-full max-w-7xl mx-auto px-6 pt-32 pb-10 lg:pb-14">
+      <div className="relative z-10 flex-1 flex flex-col justify-end w-full max-w-7xl mx-auto px-6 pt-32 pb-5 lg:pb-14">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
           <h1 className="text-4xl md:text-5xl lg:text-6xl text-black leading-[1.18] mb-6 select-none w-full whitespace-pre-wrap min-h-[2.4em]">
             {displayed}
@@ -160,9 +160,9 @@ export function Hero() {
           <p className="text-base md:text-lg text-neutral-600 leading-relaxed mb-8 max-w-lg">
             Публикуйте задачи, получайте отклики с ценой и сроком и фиксируйте сделку в чате. На сайте и в Telegram.
           </p>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/feed" className="rounded-full bg-black text-white px-8 py-4 text-sm font-semibold hover:bg-violet-700 transition-colors">Начать работу</Link>
-            <a href={`https://t.me/${BOT}`} className="rounded-full border border-black/15 bg-white/70 px-8 py-4 text-sm font-semibold hover:border-violet-600 hover:text-violet-700 transition-colors">Открыть бота</a>
+          <div className="flex flex-nowrap gap-2 sm:gap-3">
+            <Link href="/feed" className="rounded-full bg-black text-white px-5 sm:px-8 py-3.5 sm:py-4 text-[13px] sm:text-sm font-semibold hover:bg-violet-700 transition-colors whitespace-nowrap">Начать работу</Link>
+            <a href={`https://t.me/${BOT}`} className="rounded-full border border-black/15 bg-white/70 px-5 sm:px-8 py-3.5 sm:py-4 text-[13px] sm:text-sm font-semibold hover:border-violet-600 hover:text-violet-700 transition-colors whitespace-nowrap">Открыть бота</a>
           </div>
         </motion.div>
       </div>
