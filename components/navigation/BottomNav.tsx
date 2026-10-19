@@ -29,7 +29,7 @@ export function BottomNav() {
       ];
 
   return (
-    <nav className="fixed bottom-3 left-0 right-0 z-50 px-3 pointer-events-none">
+    <nav className="fixed bottom-[max(env(safe-area-inset-bottom,0px),0.75rem)] left-0 right-0 z-50 px-3 pointer-events-none">
       <div className="max-w-md mx-auto pointer-events-auto bg-white/95 backdrop-blur-2xl border border-slate-200/90 rounded-full shadow-[0_12px_40px_rgba(124,58,237,0.14)] px-2.5 py-1.5 flex items-center justify-between">
         {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== "/feed" && pathname.startsWith(item.href));
@@ -37,22 +37,30 @@ export function BottomNav() {
 
           if (item.isCenter) {
             return (
-              <Link key={item.href} href={item.href} className="relative -top-3 group flex flex-col items-center select-none">
-                <motion.div
-                  whileTap={{ scale: 0.92 }}
-                  className={cn(
-                    "w-13 h-13 rounded-full flex items-center justify-center relative shadow-lg transition-all duration-300 bg-gradient-to-tr from-violet-600 to-indigo-600 text-white",
-                    isActive ? "shadow-violet-500/50 ring-4 ring-purple-100" : "shadow-violet-500/35"
-                  )}
-                >
-                  <Icon className="w-6 h-6 stroke-[2.2]" />
-                  {totalUnread > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center border-2 border-white">
-                      {totalUnread > 99 ? "99+" : totalUnread}
-                    </span>
-                  )}
-                </motion.div>
-                <span className="text-[10px] font-extrabold text-violet-700 tracking-tight mt-0.5">Чаты</span>
+              <Link
+                key={item.href}
+                href={item.href}
+                className="relative group flex flex-col items-center justify-center py-0.5 px-1.5 select-none min-w-[62px]"
+              >
+                <div className="flex flex-col items-center gap-0.5">
+                  <motion.div
+                    whileTap={{ scale: 0.92 }}
+                    className={cn(
+                      "w-11 h-8 rounded-full flex items-center justify-center relative shadow-sm transition-all duration-300",
+                      isActive
+                        ? "bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-violet-500/40 ring-2 ring-violet-300"
+                        : "bg-gradient-to-tr from-violet-600/90 to-indigo-600/90 hover:from-violet-600 hover:to-indigo-600 text-white shadow-violet-500/25"
+                    )}
+                  >
+                    <Icon className="w-5 h-5 stroke-[2.2]" />
+                    {totalUnread > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 px-1 rounded-full bg-rose-500 text-white text-[9.5px] font-black flex items-center justify-center border-2 border-white">
+                        {totalUnread > 99 ? "99+" : totalUnread}
+                      </span>
+                    )}
+                  </motion.div>
+                  <span className="text-[10px] font-extrabold text-violet-700 tracking-tight">Чаты</span>
+                </div>
               </Link>
             );
           }

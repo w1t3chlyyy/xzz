@@ -21,10 +21,10 @@ function isAdmin(userId: number): boolean {
 
 const TIER_LABEL: Record<string, string> = { pro: "Pro" };
 
-// ⬇️ Ссылки на канал, поддержку и Mini App
-const CHANNEL_URL = "https://t.me/F1337C";      // ← замените на ваш канал
-const SUPPORT_URL = "https://t.me/F1337H";  // ← замените на ваш support-аккаунт
-const MINI_APP_DIRECT_URL = "https://t.me/F1337Bot/app";
+// ⬇️ Ссылки на канал, поддержку и Mini App (настраиваются через переменные окружения)
+const CHANNEL_URL = process.env.TELEGRAM_CHANNEL_URL || "https://t.me/F1337C";
+const SUPPORT_URL = process.env.TELEGRAM_SUPPORT_URL || process.env.NEXT_PUBLIC_SUPPORT_URL || "https://t.me/F1337H";
+const MINI_APP_DIRECT_URL = process.env.TELEGRAM_MINI_APP_URL || "https://t.me/F1337Bot/app";
 
 // Кэш настроек приветствия (гарантирует мгновенный ответ и сохранение даже при сетевых задержках)
 let welcomeCache = {
