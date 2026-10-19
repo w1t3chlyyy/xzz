@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useRouter } from "next/navigation";
 import { Loader2, Send } from "lucide-react";
 import { getTelegramInitData } from "@/lib/telegram/webapp";
+import { LoginScreen } from "@/components/auth/LoginScreen";
 
 export type Role = "client" | "executor" | null;
 
@@ -71,13 +72,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [unread, setUnread] = useState(0);
   const [clockOffset, setClockOffset] = useState(0);
   const [ready, setReady] = useState(false);
+  const [needLogin, setNeedLogin] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const busyRef = useRef(false);
   const hasUserRef = useRef(false);
 
   const fail = useCallback((message: string) => {
-    if (!hasUserRef.current || message.startsWith("Откройте")) {
-      hasUserRef.current = false;
+    if (!hasUserRef.current) {
       setUser(null);
       setAuthError(message);
     }
@@ -91,6 +92,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUnread(data.unread || 0);
     setClockOffset((data.serverNow || Date.now()) - Date.now());
     setAuthError(null);
+    setNeedLogin(false);
     setReady(true);
     try {
       localStorage.setItem(CACHE_KEY, JSON.stringify({ user: data.user, isAdmin: !!data.isAdmin }));
@@ -109,11 +111,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       let data = await fetchMe();
       const tgId = getTelegramId();
-      // нет сессии, либо в этом браузере осталась сессия другого Telegram-аккаунта
       if (!data || (tgId && Number(data.user.telegram_id) !== tgId)) {
+        // Обычный сайт (вне Telegram): показываем экран входа через Telegram Login Widget
+        if (!getTelegramInitData()) {
+          hasUserRef.current = false;
+          setUser(null);
+          try { localStorage.removeItem(CACHE_KEY); } catch {}
+          setNeedLogin(true);
+          setReady(true);
+          return;
+        }
         const ok = await telegramLogin();
         if (!ok) {
-          fail("Откройте приложение через Telegram-бота 1337.");
+          fail("Не удалось войти через Telegram.");
           return;
         }
         data = await fetchMe();
@@ -131,7 +141,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [apply, fail]);
 
   useEffect(() => {
-    // мгновенный старт из кэша, дальше — сверка с сервером в фоне
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       if (raw) {
@@ -159,26 +168,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refresh]);
 
-  const setRole = useCallback((role: "client" | "executor") => {
-    setUser((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, role };
-      try {
-        localStorage.setItem("1337_role", role);
-        localStorage.setItem("fiolet_role", role);
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ user: next, isAdmin }));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, [isAdmin]);
+  const setRole = useCallback(
+    (role: "client" | "executor") => {
+      setUser((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, role };
+        try {
+          localStorage.setItem("1337_role", role);
+          localStorage.setItem("fiolet_role", role);
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ user: next, isAdmin }));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    },
+    [isAdmin]
+  );
 
   const value = useMemo<AppState | null>(
-    () =>
-      user
-        ? { user, role: user.role, isAdmin, unread, clockOffset, refresh, setRole }
-        : null,
+    () => (user ? { user, role: user.role, isAdmin, unread, clockOffset, refresh, setRole } : null),
     [user, isAdmin, unread, clockOffset, refresh, setRole]
   );
 
@@ -187,6 +196,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen bg-[#F4F3FA] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-violet-600 animate-spin" />
       </div>
+    );
+  }
+
+  if (!value && needLogin) {
+    return (
+      <LoginScreen
+        onDone={() => {
+          setReady(false);
+          void refresh();
+        }}
+      />
     );
   }
 

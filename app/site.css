@@ -1,0 +1,10 @@
+/* Деловой вид для сайта: плоские кнопки, сдержанные скругления, без цветных теней */
+.btn-primary { background: #6D28D9; border: 0; box-shadow: none; border-radius: .625rem; }
+.btn-primary:hover:not(:disabled) { background: #5B21B6; transform: none; box-shadow: none; opacity: 1; }
+.btn-outline { border-radius: .625rem; box-shadow: none; }
+.shadow-violet, [class*="shadow-["] { box-shadow: none !important; }
+.rounded-3xl { border-radius: 1rem; }
+.rounded-2xl { border-radius: .75rem; }
+.card-violet { box-shadow: none; border-radius: .75rem; }
+.badge-violet, .badge-blue, .badge-yellow { border-radius: .375rem; }
+.animate-pulse { animation: none; }

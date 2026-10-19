@@ -4,6 +4,7 @@ import { telegram } from "@/lib/telegram/bot-api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { telegramEntitiesToHtml, stripCommandWithEntities, type TelegramMessageEntity } from "@/lib/telegram/entities";
 import { notifyExecutorResponseStatus } from "@/lib/telegram/notifications";
+import { startOnboarding, handleOnboardingCallback } from "@/lib/telegram/onboarding";
 import { resolveWithdrawal } from "@/lib/withdrawals";
 import { confirmPayment, rejectPayment } from "@/lib/payments";
 
@@ -22,17 +23,9 @@ function isAdmin(userId: number): boolean {
 
 const TIER_LABEL: Record<string, string> = { pro: "Pro" };
 
-// ⬇️ Ссылки на канал, поддержку и Mini App (настраиваются через переменные окружения)
 const CHANNEL_URL = process.env.TELEGRAM_CHANNEL_URL || "https://t.me/F1337C";
 const SUPPORT_URL = process.env.TELEGRAM_SUPPORT_URL || process.env.NEXT_PUBLIC_SUPPORT_URL || "https://t.me/F1337H";
 const MINI_APP_DIRECT_URL = process.env.TELEGRAM_MINI_APP_URL || "https://t.me/F1337Bot/app";
-
-// Кэш настроек приветствия (гарантирует мгновенный ответ и сохранение даже при сетевых задержках)
-let welcomeCache = {
-  message: `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`,
-  photoId: null as string | null,
-  loadedAt: 0,
-};
 
 export async function GET() {
   return NextResponse.json({ ok: true, message: "Telegram webhook is alive" });
@@ -134,6 +127,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
 
   if (/^\/start\b/.test(text)) {
     await sendWelcome(chatId, supabase);
+    if (msg.from) await startOnboarding(chatId, msg.from, supabase);
     return;
   }
 
@@ -179,12 +173,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     }
 
     const html = telegramEntitiesToHtml(value, entities);
-
-    await supabase
-      .from("settings")
-      .update({ welcome_message: html, welcome_photo_file_id: null })
-      .eq("id", 1);
-
+    await supabase.from("settings").update({ welcome_message: html, welcome_photo_file_id: null }).eq("id", 1);
     await telegram.sendMessage(chatId, "✅ Приветствие обновлено (текст, без фото).");
     return;
   }
@@ -212,10 +201,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
       await telegram.sendMessage(chatId, "Использование: /setrequisites текст с банковскими реквизитами");
       return;
     }
-    await supabase
-      .from("payment_requisites")
-      .update({ details: value, updated_at: new Date().toISOString() })
-      .eq("id", 1);
+    await supabase.from("payment_requisites").update({ details: value, updated_at: new Date().toISOString() }).eq("id", 1);
     await telegram.sendMessage(chatId, "✅ Реквизиты обновлены.");
     return;
   }
@@ -245,26 +231,18 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     }
 
     const now = Date.now();
-    const currentExpiry = targetUser.subscription_expires_at
-      ? new Date(targetUser.subscription_expires_at).getTime()
-      : 0;
+    const currentExpiry = targetUser.subscription_expires_at ? new Date(targetUser.subscription_expires_at).getTime() : 0;
     const sameTierStillActive = currentExpiry > now && targetUser.subscription_tier === "pro";
     const base = sameTierStillActive ? currentExpiry : now;
     const newExpiry = new Date(base + days * 86400000).toISOString();
 
-    await supabase
-      .from("users")
-      .update({ subscription_tier: "pro", subscription_expires_at: newExpiry })
-      .eq("id", targetUser.id);
+    await supabase.from("users").update({ subscription_tier: "pro", subscription_expires_at: newExpiry }).eq("id", targetUser.id);
 
     await telegram.sendMessage(
       chatId,
       `✅ Подписка Pro выдана tg${targetId} на ${days} дн. (до ${new Date(newExpiry).toLocaleDateString("ru-RU")}).`
     );
-
-    await telegram
-      .sendMessage(targetId, `🎉 Администратор выдал вам подписку <b>Pro</b> на ${days} дней!`)
-      .catch(() => {});
+    await telegram.sendMessage(targetId, `🎉 Администратор выдал вам подписку <b>Pro</b> на ${days} дней!`).catch(() => {});
     return;
   }
 
@@ -277,31 +255,19 @@ async function handleMessage(msg: any, supabase: AdminClient) {
       return;
     }
 
-    const { data: targetUser } = await supabase
-      .from("users")
-      .select("id")
-      .eq("telegram_id", targetId)
-      .maybeSingle();
-
+    const { data: targetUser } = await supabase.from("users").select("id").eq("telegram_id", targetId).maybeSingle();
     if (!targetUser) {
       await telegram.sendMessage(chatId, `❌ Пользователь с telegram_id ${targetId} не найден.`);
       return;
     }
 
-    await supabase
-      .from("users")
-      .update({ subscription_tier: "free", subscription_expires_at: null })
-      .eq("id", targetUser.id);
-
+    await supabase.from("users").update({ subscription_tier: "free", subscription_expires_at: null }).eq("id", targetUser.id);
     await telegram.sendMessage(chatId, `✅ Подписка tg${targetId} снята.`);
     return;
   }
 
   if (/^\/broadcast\b/.test(text)) {
-    const { text: value, entities } = stripCommandWithEntities(
-      text,
-      msg.entities as TelegramMessageEntity[] | undefined
-    );
+    const { text: value, entities } = stripCommandWithEntities(text, msg.entities as TelegramMessageEntity[] | undefined);
 
     if (!value.trim()) {
       await telegram.sendMessage(
@@ -314,12 +280,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
     }
 
     const html = telegramEntitiesToHtml(value, entities);
-
-    const { data: allUsers } = await supabase
-      .from("users")
-      .select("telegram_id")
-      .not("telegram_id", "is", null);
-
+    const { data: allUsers } = await supabase.from("users").select("telegram_id").not("telegram_id", "is", null);
     const targets = (allUsers || []).map((u) => u.telegram_id).filter(Boolean) as number[];
 
     if (targets.length === 0) {
@@ -331,7 +292,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
 
     let sent = 0;
     let failed = 0;
-
     const BATCH_SIZE = 20;
     const DELAY_MS = 1000;
 
@@ -339,7 +299,6 @@ async function handleMessage(msg: any, supabase: AdminClient) {
       const batch = targets.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(batch.map((id) => telegram.sendMessage(id, html)));
       results.forEach((r) => (r.status === "fulfilled" ? sent++ : failed++));
-
       if (i + BATCH_SIZE < targets.length) {
         await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
       }
@@ -360,10 +319,7 @@ async function handleSetWelcomePhoto(msg: any, supabase: AdminClient) {
   const chatId = msg.chat.id;
   const caption: string = msg.caption || "";
 
-  const { text: value, entities } = stripCommandWithEntities(
-    caption,
-    msg.caption_entities as TelegramMessageEntity[] | undefined
-  );
+  const { text: value, entities } = stripCommandWithEntities(caption, msg.caption_entities as TelegramMessageEntity[] | undefined);
 
   if (!value.trim()) {
     await telegram.sendMessage(
@@ -377,25 +333,17 @@ async function handleSetWelcomePhoto(msg: any, supabase: AdminClient) {
   const fileId = msg.photo[msg.photo.length - 1].file_id;
   const html = telegramEntitiesToHtml(value, entities);
 
-  await supabase
-    .from("settings")
-    .update({ welcome_message: html, welcome_photo_file_id: fileId })
-    .eq("id", 1);
-
+  await supabase.from("settings").update({ welcome_message: html, welcome_photo_file_id: fileId }).eq("id", 1);
   await telegram.sendMessage(chatId, "✅ Приветствие обновлено (текст + фото).");
 }
 
 async function sendWelcome(chatId: number | string, supabase: AdminClient) {
-  const { data: settings } = await supabase
-    .from("settings")
-    .select("welcome_message, welcome_photo_file_id")
-    .single();
+  const { data: settings } = await supabase.from("settings").select("welcome_message, welcome_photo_file_id").single();
 
   const welcomeText =
     settings?.welcome_message ||
     `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`;
 
-  // ⬇️ Кнопки теперь используют константы, объявленные вверху файла
   const keyboard = {
     inline_keyboard: [
       [{ text: "Открыть биржу", url: MINI_APP_DIRECT_URL }],
@@ -414,10 +362,7 @@ async function sendWelcome(chatId: number | string, supabase: AdminClient) {
 
     if (result?.ok) return;
 
-    console.warn(
-      "sendWelcome: invalid welcome_photo_file_id, clearing and falling back to text:",
-      result?.description
-    );
+    console.warn("sendWelcome: invalid welcome_photo_file_id, clearing and falling back to text:", result?.description);
     await supabase.from("settings").update({ welcome_photo_file_id: null }).eq("id", 1);
   }
 
@@ -430,7 +375,10 @@ async function handleCallback(cq: any, supabase: AdminClient) {
   const userId: number = cq.from.id;
   const data: string = cq.data || "";
 
-  // 1. Обработка откликов на заказы (принятие/отказ заказчиком прямо в боте)
+  // Регистрация: выбор роли / направления
+  if (await handleOnboardingCallback(cq, supabase)) return;
+
+  // 1. Принятие/отказ по отклику заказчиком прямо в боте
   if (data.startsWith("resp_acc:") || data.startsWith("resp_rej:")) {
     const isAccept = data.startsWith("resp_acc:");
     const responseId = data.replace(/^resp_(acc|rej):/, "");
@@ -458,16 +406,10 @@ async function handleCallback(cq: any, supabase: AdminClient) {
         const keyboard: any[][] = [];
         const row: any[] = [];
         if (execUsername) {
-          row.push({
-            text: `💬 Написать @${execUsername}`,
-            url: `https://t.me/${execUsername}`,
-          });
+          row.push({ text: `💬 Написать @${execUsername}`, url: `https://t.me/${execUsername}` });
         }
         if (siteUrl && siteUrl.startsWith("https://")) {
-          row.push({
-            text: "📱 Открыть заказ",
-            web_app: { url: `${siteUrl}/orders/${result.order?.id}` },
-          });
+          row.push({ text: "📱 Открыть заказ", web_app: { url: `${siteUrl}/orders/${result.order?.id}` } });
         }
         if (row.length > 0) keyboard.push(row);
 
@@ -479,7 +421,6 @@ async function handleCallback(cq: any, supabase: AdminClient) {
           `❌ <b>Отклик от ${execName} отклонен.</b>\n\n` +
           `📋 Заказ: <b>«${orderTitle}»</b>\n\n` +
           `Вы можете выбрать другого специалиста из оставшихся откликов.`;
-
         await telegram.editMessageText(chatId, messageId, text);
       }
     }
@@ -513,13 +454,12 @@ async function handleCallback(cq: any, supabase: AdminClient) {
   }
 
   if (data === "admin_stats") {
-    const [{ count: usersCount }, { count: ordersCount }, { count: responsesCount }, { data: payments }] =
-      await Promise.all([
-        supabase.from("users").select("*", { count: "exact", head: true }),
-        supabase.from("orders").select("*", { count: "exact", head: true }),
-        supabase.from("responses").select("*", { count: "exact", head: true }),
-        supabase.from("payments").select("amount, currency").eq("status", "paid"),
-      ]);
+    const [{ count: usersCount }, { count: ordersCount }, { count: responsesCount }, { data: payments }] = await Promise.all([
+      supabase.from("users").select("*", { count: "exact", head: true }),
+      supabase.from("orders").select("*", { count: "exact", head: true }),
+      supabase.from("responses").select("*", { count: "exact", head: true }),
+      supabase.from("payments").select("amount, currency").eq("status", "paid"),
+    ]);
 
     const revenueByCurrency: Record<string, number> = {};
     (payments || []).forEach((p) => {
@@ -558,10 +498,7 @@ async function handleCallback(cq: any, supabase: AdminClient) {
         { text: "❌", callback_data: `reject:${p.id}` },
       ]);
       const list = pendingPayments
-        .map(
-          (p) =>
-            `• <b>${TIER_LABEL[p.tier] || p.tier}</b> — ${p.amount} ${p.currency} (${p.method}) от tg${p.telegram_id}`
-        )
+        .map((p) => `• <b>${TIER_LABEL[p.tier] || p.tier}</b> — ${p.amount} ${p.currency} (${p.method}) от tg${p.telegram_id}`)
         .join("\n");
       await telegram.editMessageText(chatId, messageId, `🧾 <b>Заявки на оплату</b>\n\n${list}`, {
         reply_markup: { inline_keyboard: rows },
@@ -584,18 +521,14 @@ async function handleCallback(cq: any, supabase: AdminClient) {
   }
 
   if (data.startsWith("confirm:")) {
-    const paymentId = data.split(":")[1];
-    await confirmPayment(supabase, paymentId, userId);
+    await confirmPayment(supabase, data.split(":")[1], userId);
     await telegram.editMessageText(chatId, messageId, "✅ Оплата подтверждена, подписка выдана.");
   }
 
   if (data.startsWith("reject:")) {
-    const paymentId = data.split(":")[1];
-    await rejectPayment(supabase, paymentId, userId);
+    await rejectPayment(supabase, data.split(":")[1], userId);
     await telegram.editMessageText(chatId, messageId, "❌ Оплата отклонена.");
   }
 
   await telegram.answerCallbackQuery(cq.id);
 }
-
-
