@@ -35,7 +35,7 @@ function useTypewriter(text: string, speed = 38, startDelay = 600) {
 export function Hero() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [menu, setMenu] = useState(false);
-  const { displayed, done } = useTypewriter("заказы и исполнители\nв одном месте");
+  const { displayed, done } = useTypewriter("встреча\nспроса и таланта");
 
   // ПК: перемотка видео движением мыши (скраббинг)
   useEffect(() => {
