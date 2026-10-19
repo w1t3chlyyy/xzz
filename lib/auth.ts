@@ -1,7 +1,9 @@
 // lib/auth.ts — серверные хелперы авторизации (только для route handlers)
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { TRIAL_DURATION_DAYS } from "@/lib/constants";
 
 export interface UserRow {
@@ -25,12 +27,28 @@ export const ADMIN_IDS: number[] = (process.env.ADMIN_TELEGRAM_ID || "")
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function getCurrentUser(): Promise<UserRow | null> {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
   try {
+    const cookieStore = await cookies();
+    // Быстрый путь: если в куках нет токена Supabase (sb-*-auth-token), пользователь не авторизован.
+    // Это исключает лишние сетевые запросы к Supabase Auth и убирает AuthRetryableFetchError.
+    const allCookies = cookieStore.getAll();
+    const hasAuthCookie = allCookies.some(
+      (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token") && Boolean(c.value)
+    );
+    if (!hasAuthCookie) {
+      return null;
+    }
+
     const supabase = await createClient();
     const {
       data: { user },
+      error,
     } = await supabase.auth.getUser();
-    if (!user) return null;
+    if (error || !user) return null;
 
     const { data } = await createAdminClient()
       .from("users")
@@ -39,7 +57,8 @@ export async function getCurrentUser(): Promise<UserRow | null> {
       .maybeSingle();
 
     return (data as UserRow) || null;
-  } catch {
+  } catch (e) {
+    console.warn("getCurrentUser notice:", e);
     return null;
   }
 }

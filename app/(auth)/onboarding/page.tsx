@@ -94,25 +94,25 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F4F3FA] flex flex-col justify-between p-5 max-w-md mx-auto text-slate-900 font-sans selection:bg-purple-200">
+    <div className="min-h-screen bg-[#F4F3FA] flex flex-col justify-between pt-[max(env(safe-area-inset-top,0px)+3.75rem,4.5rem)] pb-6 px-4 max-w-md mx-auto text-slate-900 font-sans selection:bg-purple-200">
       {/* Header */}
-      <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="text-center pt-4">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-extrabold uppercase tracking-wider mb-3 border border-purple-200 shadow-xs">
+      <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="text-center">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-extrabold uppercase tracking-wider mb-2.5 border border-purple-200 shadow-xs">
           <Sparkles className="w-3.5 h-3.5" />
           <span>Шаг {step} из {selectedRole === "executor" ? 2 : 1}</span>
         </div>
 
         <img
-  src="/logo.png"
-  alt="1337"
-  className="h-10 mx-auto object-contain"
-/>
+          src="/logo.png"
+          alt="1337"
+          className="h-9 mx-auto object-contain my-1"
+        />
         {tgUser ? (
           <p className="text-violet-700 font-bold text-xs mt-1">
             Привет, {tgUser.displayName}!
           </p>
         ) : (
-          <p className="text-slate-500 text-xs mt-1.5 max-w-xs mx-auto leading-relaxed">
+          <p className="text-slate-500 text-xs mt-1 max-w-xs mx-auto leading-relaxed">
             {step === 1 ? "Выберите вашу роль, чтобы настроить ленту заказов" : "Выберите вашу нишу — так вы будете получать релевантные заказы"}
           </p>
         )}
@@ -120,39 +120,39 @@ export default function HomePage() {
 
       {/* Шаг 1: выбор роли */}
       {step === 1 && (
-        <div className="space-y-3.5 my-5">
+        <div className="space-y-3 my-4">
           <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.08 }}
             whileTap={{ scale: 0.985 }}
             onClick={() => setSelectedRole("executor")}
-            className={`cursor-pointer bg-white rounded-3xl p-5 border transition-all relative overflow-hidden ${
+            className={`cursor-pointer bg-white rounded-3xl p-4 sm:p-4.5 border transition-all relative overflow-hidden ${
               selectedRole === "executor"
                 ? "border-violet-600 shadow-[0_4px_25px_rgba(124,58,237,0.12)] ring-2 ring-violet-500/20"
                 : "border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:border-violet-300"
             }`}
           >
             <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-purple-100 border border-purple-200 flex items-center justify-center text-violet-700 shrink-0">
-                  <UserCheck className="w-6 h-6 stroke-[2.2]" />
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-purple-100 border border-purple-200 flex items-center justify-center text-violet-700 shrink-0">
+                  <UserCheck className="w-5.5 h-5.5 stroke-[2.2]" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-extrabold text-base text-slate-900">Исполнитель</h3>
+                    <h3 className="font-extrabold text-[15px] text-slate-900">Исполнитель</h3>
                     <span className="badge-violet text-[10px] font-extrabold py-0.5 px-2 rounded-lg">Поиск заказов</span>
                   </div>
                   <p className="text-slate-500 text-xs mt-0.5 font-medium">Хочу откликаться на проекты и зарабатывать</p>
                 </div>
               </div>
               {selectedRole === "executor" && (
-                <span className="w-6 h-6 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
+                <span className="w-5.5 h-5.5 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[3]" />
                 </span>
               )}
             </div>
-            <div className="mt-3.5 pt-3 border-t border-slate-100 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
+            <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-2 text-[10.5px] font-medium text-slate-600">
               <span className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-lg">
                 <Zap className="w-3 h-3 text-violet-600" />
                 Быстрые отклики
@@ -170,32 +170,32 @@ export default function HomePage() {
             transition={{ delay: 0.15 }}
             whileTap={{ scale: 0.985 }}
             onClick={() => setSelectedRole("client")}
-            className={`cursor-pointer bg-white rounded-3xl p-5 border transition-all relative overflow-hidden ${
+            className={`cursor-pointer bg-white rounded-3xl p-4 sm:p-4.5 border transition-all relative overflow-hidden ${
               selectedRole === "client"
                 ? "border-violet-600 shadow-[0_4px_25px_rgba(124,58,237,0.12)] ring-2 ring-violet-500/20"
                 : "border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:border-violet-300"
             }`}
           >
             <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0">
-                  <Briefcase className="w-6 h-6 stroke-[2.2]" />
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0">
+                  <Briefcase className="w-5.5 h-5.5 stroke-[2.2]" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-extrabold text-base text-slate-900">Заказчик</h3>
+                    <h3 className="font-extrabold text-[15px] text-slate-900">Заказчик</h3>
                     <span className="badge-blue text-[10px] font-extrabold py-0.5 px-2 rounded-lg">Публикация</span>
                   </div>
                   <p className="text-slate-500 text-xs mt-0.5 font-medium">Ищу проверенных специалистов для своих задач</p>
                 </div>
               </div>
               {selectedRole === "client" && (
-                <span className="w-6 h-6 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
+                <span className="w-5.5 h-5.5 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 stroke-[3]" />
                 </span>
               )}
             </div>
-            <div className="mt-3.5 pt-3 border-t border-slate-100 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
+            <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-2 text-[10.5px] font-medium text-slate-600">
               <span className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-lg">
                 <Layers className="w-3 h-3 text-blue-600" />
                 База исполнителей
@@ -211,7 +211,7 @@ export default function HomePage() {
 
       {/* Шаг 2: выбор ниши (только для исполнителя) */}
       {step === 2 && (
-        <div className="space-y-3 my-5">
+        <div className="space-y-2.5 my-4">
           {NICHES.map((niche, i) => {
             const Icon = niche.icon;
             const isSelected = selectedNiche === niche.id;
@@ -224,16 +224,16 @@ export default function HomePage() {
                 transition={{ delay: 0.05 * i }}
                 whileTap={{ scale: 0.985 }}
                 onClick={() => setSelectedNiche(niche.id)}
-                className={`w-full cursor-pointer bg-white rounded-2xl p-4 border flex items-center gap-3.5 transition-all text-left ${
+                className={`w-full cursor-pointer bg-white rounded-2xl p-3.5 border flex items-center gap-3 transition-all text-left ${
                   isSelected
                     ? "border-violet-600 shadow-[0_4px_20px_rgba(124,58,237,0.1)] ring-2 ring-violet-500/20"
                     : "border-slate-100 shadow-xs hover:border-violet-300"
                 }`}
               >
-                <div className="w-10 h-10 rounded-2xl bg-purple-100 border border-purple-200 flex items-center justify-center text-violet-700 shrink-0">
-                  <Icon className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-violet-700 shrink-0">
+                  <Icon className="w-4.5 h-4.5" />
                 </div>
-                <span className="font-bold text-sm text-slate-900 flex-1">{niche.label}</span>
+                <span className="font-bold text-xs text-slate-900 flex-1">{niche.label}</span>
                 {isSelected && (
                   <span className="w-5 h-5 rounded-full bg-violet-600 text-white flex items-center justify-center shrink-0">
                     <Check className="w-3 h-3 stroke-[3]" />
@@ -246,12 +246,12 @@ export default function HomePage() {
       )}
 
       {/* Кнопки навигации */}
-      <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="space-y-3 pt-2 pb-4">
+      <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="space-y-2 pt-2 pb-2">
         <div className="flex items-center gap-2">
           {step === 2 && (
             <button
               onClick={() => setStep(1)}
-              className="w-12 h-12 shrink-0 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 hover:border-violet-300"
+              className="w-11 h-11 shrink-0 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 hover:border-violet-300"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>

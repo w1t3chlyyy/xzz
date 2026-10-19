@@ -4,7 +4,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { createClient } from "@/lib/supabase/client";
 import { getTelegramUser } from "@/lib/telegram/webapp";
 import {
   ArrowLeft,
@@ -29,6 +28,7 @@ import {
   Info
 } from "lucide-react";
 import Link from "next/link";
+import { useApp } from "@/components/providers/AppProvider";
 
 const categories = [
   { id: "programming", label: "Программирование", icon: Laptop },
@@ -69,6 +69,7 @@ const QUICK_TEMPLATES = [
 ];
 
 export default function NewOrderPage() {
+  const { user } = useApp();
   const [role, setRole] = useState<string>("client");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -80,7 +81,6 @@ export default function NewOrderPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const router = useRouter();
-  const supabase = createClient();
 
   useEffect(() => {
     const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
@@ -100,32 +100,16 @@ export default function NewOrderPage() {
       }
     }
 
-    // 2. Дополнительно подтягиваем из базы Supabase
-    async function fetchUserProfile() {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data } = await supabase
-            .from("users")
-            .select("first_name, username")
-            .eq("id", user.id)
-            .single();
-          if (data) {
-            if (data.username) {
-              setContactUsername((prev) => prev || data.username.replace(/^@/, ""));
-            }
-            if (data.first_name) {
-              setContactName((prev) => prev || data.first_name);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Could not fetch user profile:", e);
+    // 2. Дополнительно подтягиваем из AppProvider
+    if (user) {
+      if (user.username) {
+        setContactUsername((prev) => prev || user.username!.replace(/^@/, ""));
+      }
+      if (user.first_name) {
+        setContactName((prev) => prev || user.first_name!);
       }
     }
-
-    fetchUserProfile();
-  }, [router, supabase]);
+  }, [user]);
 
   const handleApplyTemplate = (tmpl: typeof QUICK_TEMPLATES[0]) => {
     setTitle(tmpl.title);

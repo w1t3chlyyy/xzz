@@ -26,6 +26,13 @@ const CHANNEL_URL = "https://t.me/F1337C";      // ← замените на в�
 const SUPPORT_URL = "https://t.me/F1337H";  // ← замените на ваш support-аккаунт
 const MINI_APP_DIRECT_URL = "https://t.me/F1337Bot/app";
 
+// Кэш настроек приветствия (гарантирует мгновенный ответ и сохранение даже при сетевых задержках)
+let welcomeCache = {
+  message: `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`,
+  photoId: null as string | null,
+  loadedAt: 0,
+};
+
 export async function GET() {
   return NextResponse.json({ ok: true, message: "Telegram webhook is alive" });
 }
