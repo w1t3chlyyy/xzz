@@ -30,9 +30,9 @@ export function Audience() {
   const d = DATA[tab];
   return (
     <div>
-      <div className="inline-flex border border-slate-300 rounded-lg p-1 bg-white">
+      <div className="inline-flex border border-slate-300 rounded-full p-1 bg-white">
         {(Object.keys(DATA) as (keyof typeof DATA)[]).map((k) => (
-          <button key={k} onClick={() => setTab(k)} className={`px-5 py-2 rounded-md text-sm font-bold transition-colors ${tab === k ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"}`}>
+          <button key={k} onClick={() => setTab(k)} className={`px-5 py-2 rounded-full text-sm font-bold transition-colors ${tab === k ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"}`}>
             {DATA[k].label}
           </button>
         ))}
@@ -41,7 +41,7 @@ export function Audience() {
         <p className="lg:col-span-4 text-xl font-heading leading-snug">{d.lead}</p>
         <dl className="lg:col-span-8 grid sm:grid-cols-2 gap-x-10 gap-y-8">
           {d.items.map(([t, s]) => (
-            <div key={t} className="border-t border-slate-300 pt-4">
+            <div key={t} className="bg-white border border-slate-200 rounded-[1.75rem] p-6">
               <dt className="text-sm font-bold">{t}</dt>
               <dd className="mt-2 text-sm text-slate-600 leading-relaxed">{s}</dd>
             </div>

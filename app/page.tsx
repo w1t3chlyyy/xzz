@@ -1,9 +1,7 @@
 import Link from "next/link";
 import "./landing.css";
-import { Inter } from "next/font/google";
 import { Hero } from "@/components/landing/Hero";
 
-const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-inter", display: "swap" });
 import { Effects } from "@/components/landing/Effects";
 import { Audience } from "@/components/landing/Audience";
 
@@ -47,7 +45,7 @@ const faq: [string, string][] = [
 
 export default function Landing() {
   return (
-    <div className={`${inter.variable} lp-inter bg-white text-slate-900`}>
+    <div className="bg-white text-slate-900">
       <Effects />
       <Hero />
 
@@ -72,7 +70,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="py-24 bg-neutral-50 border-y border-slate-200">
+      <section className="py-24 bg-neutral-50 rounded-[2.5rem] mx-3 md:mx-6">
         <div className="max-w-6xl mx-auto px-6 grid lg:grid-cols-12 gap-12">
           <div className="lg:col-span-4">
             <h2 data-reveal className="text-3xl md:text-4xl font-heading leading-tight">Путь от заявки до сделки</h2>
@@ -94,9 +92,9 @@ export default function Landing() {
       <section className="py-24">
         <div className="max-w-6xl mx-auto px-6">
           <h2 data-reveal className="text-3xl md:text-4xl font-heading leading-tight mb-10">Направления</h2>
-          <ul className="border-t border-slate-300">
+          <ul>
             {dirs.map(([t, s], i) => (
-              <li key={t} data-reveal style={{ ["--d" as any]: `${i * 0.07}s` }} className="dir border-b border-slate-300 py-6 flex items-center justify-between gap-6">
+              <li key={t} data-reveal style={{ ["--d" as any]: `${i * 0.07}s` }} className="dir bg-white border border-slate-200 rounded-[1.75rem] px-7 py-6 mb-3 flex items-center justify-between gap-6">
                 <div>
                   <h3 className="text-xl md:text-2xl font-heading">{t}</h3>
                   <p className="mt-1 text-sm text-slate-500">{s}</p>
@@ -108,7 +106,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section id="pro" className="py-24 bg-black text-white">
+      <section id="pro" className="py-24 bg-black text-white rounded-[2.5rem] mx-3 md:mx-6">
         <div className="max-w-6xl mx-auto px-6 grid lg:grid-cols-12 gap-12">
           <div className="lg:col-span-5">
             <p data-reveal className="text-xs font-bold uppercase tracking-[0.18em] text-violet-300">Тариф Pro</p>
@@ -134,9 +132,9 @@ export default function Landing() {
       <section id="faq" className="py-24">
         <div className="max-w-6xl mx-auto px-6 grid lg:grid-cols-12 gap-12">
           <h2 data-reveal className="lg:col-span-4 text-3xl md:text-4xl font-heading leading-tight">Частые вопросы</h2>
-          <div data-reveal className="lg:col-span-8 border-t border-slate-300">
+          <div data-reveal className="lg:col-span-8">
             {faq.map(([q, a]) => (
-              <details key={q} className="faq border-b border-slate-300 py-5">
+              <details key={q} className="faq bg-white border border-slate-200 rounded-[1.75rem] px-7 py-5 mb-3">
                 <summary className="flex items-center justify-between gap-6 text-base font-bold">
                   {q}
                   <span className="pm text-2xl text-violet-700 leading-none">+</span>
@@ -149,7 +147,7 @@ export default function Landing() {
       </section>
 
       <section className="px-6 pb-24">
-        <div data-reveal className="max-w-6xl mx-auto bg-black text-white rounded-2xl px-8 py-14 md:px-14 flex flex-wrap items-center justify-between gap-8">
+        <div data-reveal className="max-w-6xl mx-auto bg-black text-white rounded-[2.5rem] px-8 py-14 md:px-14 flex flex-wrap items-center justify-between gap-8">
           <h2 className="text-2xl md:text-3xl font-heading max-w-lg leading-tight">Зарегистрируйтесь в боте за минуту</h2>
           <a href={`https://t.me/${BOT}`} className="lp-btn-light px-8 py-4 text-sm font-bold">Открыть бота</a>
         </div>
