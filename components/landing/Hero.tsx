@@ -34,64 +34,67 @@ function useTypewriter(text: string, speed = 38, startDelay = 600) {
 
 export function Hero() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const modelRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState(false);
   const { displayed, done } = useTypewriter("заказы и исполнители\nв одном месте");
 
+  // ПК: перемотка видео движением мыши (скраббинг)
   useEffect(() => {
-    videoRef.current?.play().catch(() => {});
-  }, []);
+    const video = videoRef.current;
+    if (!video) return;
 
-  // ПК: модель плавно следует за курсором. Телефон (нет курсора): модель сама медленно «плавает».
-  useEffect(() => {
-    const el = modelRef.current;
-    if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let prevX: number | null = null;
+    let targetTime = 0;
+    let seeking = false;
 
-    const pointerFine = window.matchMedia("(hover: hover) and (pointer: fine)");
-    let tx = 0; // цель курсора, -1..1
-    let ty = 0;
-    let x = 0;
-    let y = 0;
-    let r = 0;
-    let raf = 0;
+    const apply = () => {
+      if (!video.duration || Number.isNaN(video.duration)) return;
+      seeking = true;
+      video.currentTime = targetTime;
+    };
 
     const onMove = (e: MouseEvent) => {
-      tx = (e.clientX / window.innerWidth - 0.5) * 2;
-      ty = (e.clientY / window.innerHeight - 0.5) * 2;
-    };
-    window.addEventListener("mousemove", onMove, { passive: true });
+      if (window.innerWidth < 1024) return;
+      if (!video.duration || Number.isNaN(video.duration)) return;
 
-    const tick = (now: number) => {
-      let targetX: number;
-      let targetY: number;
-      let targetR: number;
-      let k: number;
-
-      if (pointerFine.matches) {
-        targetX = tx * 70;
-        targetY = ty * 36;
-        targetR = tx * 3;
-        k = 0.06; // чем меньше, тем плавнее
-      } else {
-        targetX = Math.sin(now / 1800) * 14;
-        targetY = Math.cos(now / 2300) * 10;
-        targetR = Math.sin(now / 2600) * 1.6;
-        k = 0.12;
+      if (prevX === null) {
+        prevX = e.clientX;
+        return;
       }
+      const delta = e.clientX - prevX;
+      prevX = e.clientX;
 
-      x += (targetX - x) * k;
-      y += (targetY - y) * k;
-      r += (targetR - r) * k;
-      el.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) rotate(${r.toFixed(2)}deg)`;
-      raf = requestAnimationFrame(tick);
+      targetTime += (delta / window.innerWidth) * 0.8 * video.duration;
+      targetTime = Math.min(Math.max(targetTime, 0), video.duration);
+
+      if (!seeking) apply();
     };
-    raf = requestAnimationFrame(tick);
 
+    const onSeeked = () => {
+      seeking = false;
+      // если мышь успела уйти дальше за время перемотки — догоняем
+      if (Math.abs(video.currentTime - targetTime) > 0.01) apply();
+    };
+
+    if (window.innerWidth >= 1024) {
+      video.loop = false;
+      video.pause();
+    }
+
+    video.addEventListener("seeked", onSeeked);
+    window.addEventListener("mousemove", onMove, { passive: true });
     return () => {
-      cancelAnimationFrame(raf);
+      video.removeEventListener("seeked", onSeeked);
       window.removeEventListener("mousemove", onMove);
     };
+  }, []);
+
+  // Мобильные: обычное воспроизведение
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || window.innerWidth >= 1024) return;
+    video.autoplay = true;
+    video.loop = true;
+    video.play().catch(() => {});
   }, []);
 
   const bar = "block w-5 h-[2px] bg-black transition-all duration-300";
@@ -129,29 +132,23 @@ export function Hero() {
         </div>
       </header>
 
-      {/* Модель: на телефоне — в верхней части блока, на ПК — справа, ниже и чуть меньше */}
-      <div className="absolute inset-x-0 top-20 h-[62svh] lg:inset-0 lg:top-0 lg:h-full z-0 pointer-events-none flex justify-center lg:justify-end">
-        <div className="w-full h-full lg:w-[62%] lg:translate-y-[14%] lg:scale-[0.86] origin-bottom-right">
-          <div ref={modelRef} className="w-full h-full will-change-transform">
-            <video
-              ref={videoRef}
-              src={VIDEO}
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="auto"
-              className="w-full h-full object-contain object-center lg:object-right-bottom"
-            />
-          </div>
-        </div>
+      {/* Видео на весь блок. ПК: модель справа внизу. Моб.: растянуто на весь блок, модель по центру */}
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        <video
+          ref={videoRef}
+          src={VIDEO}
+          muted
+          playsInline
+          preload="auto"
+          className="w-full h-full object-cover object-center lg:object-right-bottom"
+        />
       </div>
 
-      {/* Белый градиент снизу модели → к 0 непрозрачности вверх */}
-      <div className="absolute inset-x-0 bottom-0 h-[62%] lg:h-[55%] z-[5] pointer-events-none bg-gradient-to-t from-white from-30% via-white/85 via-60% to-transparent" />
+      {/* Белый градиент снизу → к 0 непрозрачности вверх */}
+      <div className="absolute inset-x-0 bottom-0 h-[55%] lg:h-[45%] z-[5] pointer-events-none bg-gradient-to-t from-white from-25% via-white/80 via-55% to-transparent" />
 
       {/* Весь текст и кнопки — внизу, поверх градиента */}
-      <div className="relative z-10 flex-1 flex flex-col justify-end w-full max-w-7xl mx-auto px-6 pt-32 pb-10 lg:pb-16">
+      <div className="relative z-10 flex-1 flex flex-col justify-end w-full max-w-7xl mx-auto px-6 pt-32 pb-10 lg:pb-14">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
           <h1 className="text-4xl md:text-5xl lg:text-6xl text-black leading-[1.18] mb-6 select-none w-full whitespace-pre-wrap min-h-[2.4em]">
             {displayed}
