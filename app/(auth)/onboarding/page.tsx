@@ -21,8 +21,9 @@ import {
   PenTool,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { expandTelegramApp, setTelegramHeaderColor, getTelegramUser, getTelegramInitData, type ExtractedTelegramUser } from "@/lib/telegram/webapp";
+import { expandTelegramApp, setTelegramHeaderColor, getTelegramUser, type ExtractedTelegramUser } from "@/lib/telegram/webapp";
 import { getCategoryLabel } from "@/lib/utils";
+import { useApp } from "@/components/providers/AppProvider";
 
 const NICHES = [
   { id: "programming", label: "Программирование", icon: Laptop },
@@ -32,103 +33,41 @@ const NICHES = [
 ];
 
 export default function HomePage() {
+  const { user, setRole } = useApp();
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedRole, setSelectedRole] = useState<"client" | "executor" | null>(null);
   const [selectedNiche, setSelectedNiche] = useState<string | null>(null);
   const [tgUser, setTgUser] = useState<ExtractedTelegramUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  // Пока не выяснили, есть ли у пользователя уже сохранённая роль (локально
-  // или на сервере), держим экран в состоянии "проверяем" и НЕ показываем
-  // форму опроса — иначе она будет на долю секунды мелькать при каждом входе,
-  // а если сеть подведёт — может остаться насовсем.
   const [isCheckingRole, setIsCheckingRole] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
     expandTelegramApp();
     setTelegramHeaderColor("#F4F3FA");
-
-    const user = getTelegramUser();
-    if (user) setTgUser(user);
-
-    // 1. Роль уже выбиралась раньше на этом устройстве — сразу уходим в
-    //    ленту заказов, опрос повторно не показываем.
-    const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role");
-    if (savedRole === "client" || savedRole === "executor") {
-      router.replace("/feed");
-      return;
-    }
-
-    // 2. Локально роли нет (например, новое устройство / очищенный кэш) —
-    //    спрашиваем сервер: вдруг роль уже была задана раньше через Telegram.
-    const initData = getTelegramInitData();
-    if (initData) {
-      fetch("/api/auth/telegram", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.role && (data.role === "client" || data.role === "executor")) {
-            // Роль уже известна серверу — сохраняем локально и сразу
-            // открываем ленту, минуя опрос.
-            localStorage.setItem("fiolet_role", data.role);
-            localStorage.setItem("1337_role", data.role);
-            router.replace("/feed");
-            return;
-          }
-          // Роли действительно ещё нет нигде — только тогда показываем опрос.
-          setIsCheckingRole(false);
-        })
-        .catch((e) => {
-          console.warn("TG auto-auth notice:", e);
-          setIsCheckingRole(false);
-        });
-    } else {
-      // Нет Telegram initData (например, открыли не из Telegram) — сразу
-      // показываем опрос, спрашивать сервер не о чем.
-      setIsCheckingRole(false);
-    }
-  }, [router]);
+    const u = getTelegramUser();
+    if (u) setTgUser(u);
+    if (user.role) router.replace("/feed");
+    else setIsCheckingRole(false);
+  }, [router, user.role]);
 
   const finalizeSelection = async (role: "client" | "executor", niche: string | null) => {
     setIsLoading(true);
-    localStorage.setItem("fiolet_role", role);
-    localStorage.setItem("1337_role", role);
-    if (niche) localStorage.setItem("1337_executor_niche", niche);
-
     const supabase = createClient();
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase
-          .from("users")
-          .update({
-            role,
-            first_name: tgUser?.first_name || user.user_metadata?.first_name,
-            username: tgUser?.username || user.user_metadata?.username,
-          })
-          .eq("id", user.id);
-
-        if (role === "executor") {
-          await supabase.from("executor_profiles").upsert({
-            id: user.id,
-            skills: niche ? [getCategoryLabel(niche)] : ["Программирование", "Дизайн"],
-            bio: "Специалист по разработке и автоматизации.",
-            rating: 5.0,
-            completed_orders: 0,
-          });
-        }
-      }
-    } catch (error) {
-      console.warn("Role update fallback:", error);
-    } finally {
-      setTimeout(() => {
-        router.push("/feed");
-        router.refresh();
-      }, 350);
+    const { error } = await supabase
+      .from("users")
+      .update({ role, first_name: tgUser?.first_name || user.first_name, username: tgUser?.username || user.username })
+      .eq("id", user.id);
+    if (error) {
+      setIsLoading(false);
+      alert("Не удалось сохранить роль. Попробуйте ещё раз.");
+      return;
     }
+    if (role === "executor") {
+      await supabase.from("executor_profiles").upsert({ id: user.id, skills: niche ? [getCategoryLabel(niche)] : [] });
+    }
+    setRole(role);
+    router.replace("/feed");
   };
 
   const handleContinue = () => {

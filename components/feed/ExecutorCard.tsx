@@ -12,10 +12,11 @@ interface Executor {
   executor_profiles: {
     skills: string[];
     bio: string;
-    rating: number;
+    rating: number | null;
     completed_orders: number;
     hourly_rate?: number;
     min_project_budget?: number;
+    is_open?: boolean;
   };
 }
 
@@ -28,7 +29,7 @@ export function ExecutorCard({ executor }: ExecutorCardProps) {
   const profile = executor.executor_profiles || {
     skills: [],
     bio: "",
-    rating: 5.0,
+    rating: null as number | null,
     completed_orders: 0,
   };
 
@@ -36,7 +37,7 @@ export function ExecutorCard({ executor }: ExecutorCardProps) {
 
   const handleOpenChat = (e: React.MouseEvent) => {
     e.stopPropagation();
-    router.push(`/chats?name=${encodeURIComponent(displayName)}`);
+    router.push(`/chats?user=${executor.id}`);
   };
 
   return (
@@ -70,22 +71,28 @@ export function ExecutorCard({ executor }: ExecutorCardProps) {
             </div>
 
             <div className="flex items-center gap-2 mt-1 text-xs">
-              <div className="badge-yellow text-[11px] font-bold py-0.5 px-2 rounded-lg flex items-center gap-1">
-                <Star className="w-3 h-3 text-amber-600 fill-amber-500" />
-                <span>{Number(profile.rating || 5.0).toFixed(1)}</span>
-              </div>
-              <div className="flex items-center gap-1 text-slate-500 text-[11px] font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{profile.completed_orders || 12} кейсов</span>
-              </div>
+              {profile.completed_orders > 0 && profile.rating ? (
+                <div className="badge-yellow text-[11px] font-bold py-0.5 px-2 rounded-lg flex items-center gap-1">
+                  <Star className="w-3 h-3 text-amber-600 fill-amber-500" />
+                  <span>{Number(profile.rating).toFixed(1)}</span>
+                </div>
+              ) : null}
+              {profile.completed_orders > 0 && (
+                <div className="flex items-center gap-1 text-slate-500 text-[11px] font-medium">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{profile.completed_orders} выполнено</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        <span className="badge-blue text-[10px] font-bold py-1 px-2.5 rounded-xl shrink-0 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-          Свободен
-        </span>
+        {(profile as any).is_open !== false && (
+          <span className="badge-blue text-[10px] font-bold py-1 px-2.5 rounded-xl shrink-0 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+            Свободен
+          </span>
+        )}
       </div>
 
       {profile.bio && (
@@ -114,7 +121,13 @@ export function ExecutorCard({ executor }: ExecutorCardProps) {
 
       <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
         <div className="text-[11px] text-slate-500 font-medium">
-          <span className="font-bold text-slate-900 text-xs">от 1 500 ₽</span> / час
+          {profile.hourly_rate ? (
+            <>
+              <span className="font-bold text-slate-900 text-xs">от {profile.hourly_rate.toLocaleString("ru-RU")} ₽</span> / час
+            </>
+          ) : (
+            "Ставка по договорённости"
+          )}
         </div>
 
         <button

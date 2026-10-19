@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { getTelegramUser } from "@/lib/telegram/webapp";
-import { addCachedClientOrder } from "@/lib/utils";
 import {
   ArrowLeft,
   Plus,
@@ -79,6 +78,7 @@ export default function NewOrderPage() {
   const [contactUsername, setContactUsername] = useState("");
   const [contactName, setContactName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
 
@@ -137,104 +137,28 @@ export default function NewOrderPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || !category) return;
-
+    if (!description.trim() || !category) return;
     setIsLoading(true);
-
+    setSubmitError(null);
     try {
-      const tgUser = getTelegramUser();
-      const finalTitle = title.trim() || description.slice(0, 50).split("\n")[0];
-      const finalUsername = contactUsername.trim().replace(/^@/, "") || tgUser?.username?.replace(/^@/, "") || "";
-      const finalName = contactName.trim() || tgUser?.displayName || "Заказчик";
-
-      const { data: { user } } = await supabase.auth.getUser();
-
-      let insertedId: string | null = null;
-
-      // 1. Создаем заказ через серверный API роут для надежности и обновления контактов
-      try {
-        const res = await fetch("/api/orders", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: finalTitle,
-            description,
-            category,
-            budget_min: budgetMin ? parseInt(budgetMin) : null,
-            budget_max: budgetMax ? parseInt(budgetMax) : null,
-            client_id: user?.id || null,
-            contact_username: finalUsername,
-            contact_name: finalName,
-            telegram_id: tgUser?.id || null,
-          }),
-        });
-
-        if (res.ok) {
-          const resData = await res.json();
-          insertedId = resData.order?.id || null;
-        }
-      } catch (apiErr) {
-        console.warn("API /api/orders failed, falling back to direct insert:", apiErr);
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title, description, category,
+          budget_min: budgetMin || null,
+          budget_max: budgetMax || null,
+          contact_name: contactName,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSubmitError(json.error || "Не удалось опубликовать заказ");
+        return;
       }
-
-      // 2. Фолбек на прямую вставку, если API не ответил
-      if (!insertedId && user) {
-        try {
-          await supabase
-            .from("users")
-            .update({
-              username: finalUsername || null,
-              first_name: finalName,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", user.id);
-        } catch (uErr) {
-          console.warn("Failed to sync contact to users table:", uErr);
-        }
-
-        const { data: inserted, error: insertError } = await supabase
-          .from("orders")
-          .insert({
-            client_id: user.id,
-            title: finalTitle,
-            description,
-            category,
-            budget_min: budgetMin ? parseInt(budgetMin) : null,
-            budget_max: budgetMax ? parseInt(budgetMax) : null,
-            status: "active",
-          })
-          .select("id")
-          .single();
-
-        if (insertError) {
-          console.error("Error inserting order directly:", insertError);
-        } else {
-          insertedId = inserted?.id ?? null;
-        }
-      }
-
-      // 3. Сохраняем в локальный кэш для мгновенного отображения с заполненным контактом
-      if (insertedId) {
-        const newLocalOrder = {
-          id: insertedId,
-          title: finalTitle,
-          description,
-          category,
-          budget_min: budgetMin ? parseInt(budgetMin) : 25000,
-          budget_max: budgetMax ? parseInt(budgetMax) : 45000,
-          created_at: new Date().toISOString(),
-          client: {
-            first_name: finalName,
-            username: finalUsername || "client",
-          },
-        };
-        addCachedClientOrder(newLocalOrder);
-      }
-
-      router.push("/feed");
-      router.refresh();
-    } catch (error) {
-      console.error("Error creating order:", error);
+      router.replace(`/orders/${json.order.id}`);
+    } catch {
+      setSubmitError("Ошибка сети, попробуйте ещё раз");
     } finally {
       setIsLoading(false);
     }
@@ -453,6 +377,8 @@ export default function NewOrderPage() {
             <span>Контакты скрыты. Общение с кандидатами начнется в разделе «Чаты».</span>
           </div>
         </div>
+
+        {submitError && <p className="text-xs font-bold text-rose-600">{submitError}</p>}
 
         <button
           type="submit"

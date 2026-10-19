@@ -4,6 +4,7 @@ import { telegram } from "@/lib/telegram/bot-api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { telegramEntitiesToHtml, stripCommandWithEntities, type TelegramMessageEntity } from "@/lib/telegram/entities";
 import { notifyExecutorResponseStatus } from "@/lib/telegram/notifications";
+import { resolveWithdrawal } from "@/lib/withdrawals";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -484,6 +485,22 @@ async function handleCallback(cq: any, supabase: AdminClient) {
   // 2. Админские действия
   if (!isAdmin(userId)) {
     await telegram.answerCallbackQuery(cq.id, { text: "Нет доступа" });
+    return;
+  }
+
+  if (data.startsWith("wd_ok:") || data.startsWith("wd_no:")) {
+    const paid = data.startsWith("wd_ok:");
+    const result = await resolveWithdrawal(supabase, data.split(":")[1], paid, userId);
+    if (chatId && messageId) {
+      await telegram.editMessageText(
+        chatId,
+        messageId,
+        result.ok
+          ? `${paid ? "✅ Выплачено" : "❌ Отклонено"}: ${result.amount?.toLocaleString("ru-RU")} ₽`
+          : "ℹ️ Заявка уже обработана"
+      );
+    }
+    await telegram.answerCallbackQuery(cq.id);
     return;
   }
 

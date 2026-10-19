@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -8,6 +8,8 @@ import { motion } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { getTelegramUser, type ExtractedTelegramUser } from "@/lib/telegram/webapp";
 import { useSubscription } from "@/lib/useSubscription";
+import { useApp } from "@/components/providers/AppProvider";
+import { BalanceCard } from "@/components/profile/BalanceCard";
 import {
   Crown,
   Zap,
@@ -30,18 +32,6 @@ import {
 } from "lucide-react";
 import { getSubscriptionLabel } from "@/lib/utils";
 
-interface UserProfile {
-  id: string;
-  first_name: string;
-  username: string;
-  avatar_url?: string | null;
-  role: string;
-  subscription_tier: string;
-  subscription_expires_at: string | null;
-  responses_today: number;
-  created_at: string;
-}
-
 interface SubscriptionPlan {
   id: string;
   name: string;
@@ -52,99 +42,21 @@ interface SubscriptionPlan {
 }
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { user, role, isAdmin, setRole } = useApp();
   const [tgUser, setTgUser] = useState<ExtractedTelegramUser | null>(null);
-  const [role, setRole] = useState<string>("client");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isPaying, setIsPaying] = useState<string | null>(null);
-  const supabase = createClient();
+  const [isPaying] = useState<string | null>(null);
   const sub = useSubscription();
-
-  const loadProfile = useCallback(async () => {
-    try {
-      const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
-      setRole(savedRole);
-
-      // Extract Telegram user info from Telegram WebApp
-      const extractedTg = getTelegramUser();
-      if (extractedTg) {
-        setTgUser(extractedTg);
-      }
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase
-          .from("users")
-          .select("*")
-          .eq("id", user.id)
-          .single();
-        if (data) {
-          // If Telegram user data is available, update Supabase user if needed
-          if (extractedTg && (!data.first_name || !data.username)) {
-            await supabase
-              .from("users")
-              .update({
-                first_name: extractedTg.first_name,
-                username: extractedTg.username || data.username,
-                avatar_url: extractedTg.photo_url || data.avatar_url,
-              })
-              .eq("id", user.id);
-            data.first_name = extractedTg.first_name;
-            data.username = extractedTg.username || data.username;
-            data.avatar_url = extractedTg.photo_url || data.avatar_url;
-          }
-
-          setProfile(data);
-          if (data.role) setRole(data.role);
-        }
-      } else {
-        // Fallback using real extracted Telegram profile if available
-        setProfile({
-          id: extractedTg?.id ? String(extractedTg.id) : "user-1337",
-          first_name: extractedTg?.displayName || (savedRole === "client" ? "Иван" : "Алексей"),
-          username: extractedTg?.username || (savedRole === "client" ? "ivan" : "alex"),
-          avatar_url: extractedTg?.photo_url || null,
-          role: savedRole,
-          subscription_tier: "free",
-          subscription_expires_at: null,
-          responses_today: 1,
-          created_at: new Date().toISOString(),
-        });
-      }
-    } catch {
-      const savedRole = localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client";
-      const extractedTg = getTelegramUser();
-      setProfile({
-        id: extractedTg?.id ? String(extractedTg.id) : "user-1337",
-        first_name: extractedTg?.displayName || (savedRole === "client" ? "Иван" : "Алексей"),
-        username: extractedTg?.username || (savedRole === "client" ? "ivan" : "alex"),
-        avatar_url: extractedTg?.photo_url || null,
-        role: savedRole,
-        subscription_tier: "free",
-        subscription_expires_at: null,
-        responses_today: 1,
-        created_at: new Date().toISOString(),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [supabase]);
+  const router = useRouter();
 
   useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    setTgUser(getTelegramUser());
+  }, []);
 
-  const handleToggleRole = () => {
-    const newRole = role === "client" ? "executor" : "client";
-    setRole(newRole);
-    localStorage.setItem("fiolet_role", newRole);
-    localStorage.setItem("1337_role", newRole);
-    if (profile) {
-      setProfile({ ...profile, role: newRole });
-    }
+  const handleToggleRole = async () => {
+    const next = role === "client" ? "executor" : "client";
+    const { error } = await createClient().from("users").update({ role: next }).eq("id", user.id);
+    if (!error) setRole(next);
   };
-
-  const router = useRouter();
 
   async function handleSubscribe(tier: string) {
     if (tier === "free") return;
@@ -174,18 +86,9 @@ export default function ProfilePage() {
     },
   ];
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 text-violet-600 animate-spin" />
-      </div>
-    );
-  }
-
-  const isClient = role === "client";
-  const displayName = profile?.first_name || tgUser?.displayName || "Пользователь";
-  const displayUsername = (profile?.username || tgUser?.username || "").replace(/^@/, "");
-  const avatarUrl = profile?.avatar_url || tgUser?.photo_url;
+  const isClient = role !== "executor";
+  const displayName = user.first_name || tgUser?.displayName || "Пользователь";
+  const avatarUrl = tgUser?.photo_url;
 
   return (
     <div className="space-y-4 pb-24 text-slate-900 font-sans">
@@ -203,7 +106,7 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white text-3xl font-extrabold shadow-sm">
-              {displayName?.[0] || displayUsername?.[0] || "U"}
+              {displayName?.[0] || "U"}
             </div>
           )}
           <span className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-emerald-500 border-3 border-white flex items-center justify-center shadow-xs">
@@ -326,29 +229,33 @@ export default function ProfilePage() {
         )}
 
         {/* Exclusive Admin Panel for Admin / Exchange Owner */}
-        <Link
-          href="/admin"
-          className="w-full bg-gradient-to-r from-violet-600 to-indigo-700 text-white rounded-2xl p-3.5 flex items-center justify-between shadow-md shadow-violet-600/20 hover:opacity-95 transition-all group"
-        >
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-amber-300 shadow-xs">
-              <Crown className="w-4 h-4 fill-amber-300 text-amber-300" />
-            </div>
-            <div className="text-left">
-              <div className="text-xs font-extrabold flex items-center gap-1.5">
-                <span>Панель Администратора</span>
-                <span className="bg-amber-400 text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded-md">
-                  1337
-                </span>
+        {isAdmin && (
+          <Link
+            href="/admin"
+            className="w-full bg-gradient-to-r from-violet-600 to-indigo-700 text-white rounded-2xl p-3.5 flex items-center justify-between shadow-md shadow-violet-600/20 hover:opacity-95 transition-all group"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-amber-300 shadow-xs">
+                <Crown className="w-4 h-4 fill-amber-300 text-amber-300" />
               </div>
-              <p className="text-[10.5px] text-violet-100 font-medium">
-                Агенты поддержки, заказы и арбитраж
-              </p>
+              <div className="text-left">
+                <div className="text-xs font-extrabold flex items-center gap-1.5">
+                  <span>Панель Администратора</span>
+                  <span className="bg-amber-400 text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded-md">
+                    1337
+                  </span>
+                </div>
+                <p className="text-[10.5px] text-violet-100 font-medium">
+                  Агенты поддержки, заказы и арбитраж
+                </p>
+              </div>
             </div>
-          </div>
-          <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-0.5 transition-transform" />
-        </Link>
+            <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-0.5 transition-transform" />
+          </Link>
+        )}
       </div>
+
+      {!isClient && <BalanceCard />}
 
       {/* Subscription Plans */}
       <div className="space-y-3">
@@ -359,7 +266,7 @@ export default function ProfilePage() {
 
         {plans.map((plan) => {
           const Icon = plan.icon;
-          const isCurrent = profile?.subscription_tier === plan.id;
+          const isCurrent = sub.isPaid && sub.tier === plan.id;
           return (
             <motion.div
               key={plan.id}

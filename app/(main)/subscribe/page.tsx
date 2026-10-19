@@ -47,6 +47,11 @@ export default function SubscribePage() {
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [pricing, setPricing] = useState<any>(null);
+  useEffect(() => {
+    fetch("/api/pricing").then((r) => (r.ok ? r.json() : null)).then((j) => j && setPricing(j.pricing));
+  }, []);
+
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -58,9 +63,9 @@ export default function SubscribePage() {
       id: "pro" as const,
       name: "Pro Тариф",
       badge: "Полный доступ",
-      priceMonth: 990,
-      priceYear: 790,
-      stars: 500,
+      priceMonth: pricing?.[30].rub ?? 990,
+      priceYear: pricing ? Math.round(pricing[365].rub / 12) : 792,
+      stars: billingPeriod === "year" ? (pricing?.[365].stars ?? 4800) : (pricing?.[30].stars ?? 500),
       icon: Crown,
       color: "from-violet-600 to-indigo-600",
       features: [
@@ -150,12 +155,7 @@ export default function SubscribePage() {
 
       const data = await res.json();
       if (!res.ok) {
-        // ВРЕМЕННАЯ ДИАГНОСТИКА: показываем debug-объект прямо в UI, чтобы
-        // можно было прочитать причину ошибки на телефоне, без DevTools.
-        // Уберите строку с JSON.stringify(data.debug) после того, как
-        // разберётесь с причиной — не стоит показывать это в проде.
-        const debugText = data.debug ? `\n\nDEBUG: ${JSON.stringify(data.debug)}` : "";
-        setPromoMessage({ text: (data.error || "Не удалось создать платёж") + debugText, type: "error" });
+        setPromoMessage({ text: data.error || "Не удалось создать платёж", type: "error" });
         return;
       }
 
@@ -513,19 +513,6 @@ export default function SubscribePage() {
             <span>{promoMessage.text}</span>
           </p>
         )}
-        <p className="text-[10px] text-slate-400 leading-relaxed">
-          Промокоды проверяются и применяются на сервере — управлять ими можно только напрямую через таблицу
-          <code className="mx-1 bg-slate-100 px-1 rounded">promo_codes</code> в Supabase.
-        </p>
-      </div>
-
-      {/* Security note replacing the old client-side test panel */}
-      <div className="bg-slate-100/80 rounded-2xl p-3 border border-slate-200/80 flex items-start gap-2">
-        <ShieldCheck className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-        <p className="text-[11px] text-slate-600 leading-relaxed">
-          Пробный период и статус подписки теперь считаются на сервере (таблица <code>users</code>), а не в браузере —
-          их больше нельзя изменить через localStorage.
-        </p>
       </div>
 
       {/* Success Modal */}

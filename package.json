@@ -16,14 +16,12 @@
     "framer-motion": "^11.15.0",
     "lucide-react": "^0.468.0",
     "next": "^14.2.21",
-    "node-telegram-bot-api": "^0.66.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/node-telegram-bot-api": "^0.64.15",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "autoprefixer": "^10.5.4",

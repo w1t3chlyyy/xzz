@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Tag,
   SlidersHorizontal,
-  Maximize2,
   Bookmark,
   ChevronDown,
   Sparkles,
@@ -31,6 +30,8 @@ interface FeedFilterProps {
   onChange: (category: string) => void;
   onBookmarkFilter?: () => void;
   isBookmarkedOnly?: boolean;
+  budgetSort: "all" | "high" | "low";
+  onBudgetSortChange: (v: "all" | "high" | "low") => void;
 }
 
 export function FeedFilter({
@@ -38,10 +39,11 @@ export function FeedFilter({
   onChange,
   onBookmarkFilter,
   isBookmarkedOnly,
+  budgetSort,
+  onBudgetSortChange,
 }: FeedFilterProps) {
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [budgetSort, setBudgetSort] = useState<"all" | "high" | "low">("all");
 
   const currentCategory = categories.find((c) => c.id === activeCategory) || categories[0];
 
@@ -87,15 +89,6 @@ export function FeedFilter({
               isFilterOpen && "rotate-180"
             )}
           />
-        </button>
-
-        {/* Expand / View Button */}
-        <button
-          onClick={() => {}}
-          title="Развернуть"
-          className="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 hover:border-violet-300 hover:text-violet-700 shadow-xs transition-colors shrink-0"
-        >
-          <Maximize2 className="w-4 h-4" />
         </button>
 
         {/* Bookmarks Button */}
@@ -164,7 +157,7 @@ export function FeedFilter({
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  setBudgetSort("all");
+                  onBudgetSortChange("all");
                   setIsFilterOpen(false);
                 }}
                 className={cn(
@@ -176,7 +169,7 @@ export function FeedFilter({
               </button>
               <button
                 onClick={() => {
-                  setBudgetSort("high");
+                  onBudgetSortChange("high");
                   setIsFilterOpen(false);
                 }}
                 className={cn(
@@ -188,7 +181,7 @@ export function FeedFilter({
               </button>
               <button
                 onClick={() => {
-                  setBudgetSort("low");
+                  onBudgetSortChange("low");
                   setIsFilterOpen(false);
                 }}
                 className={cn(

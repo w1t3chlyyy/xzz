@@ -17,6 +17,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { getCategoryLabel } from "@/lib/utils";
+import { useApp } from "@/components/providers/AppProvider";
 
 export interface Order {
   id: string;
@@ -26,6 +27,7 @@ export interface Order {
   budget_min: number | null;
   budget_max: number | null;
   status?: string;
+  client_id?: string;
   pending_responses_count?: number;
   total_responses_count?: number;
   created_at: string;
@@ -81,6 +83,8 @@ function readBookmarks(): string[] {
 
 export function OrderCard({ order }: OrderCardProps) {
   const router = useRouter();
+  const { user } = useApp();
+  const isMine = order.client_id === user.id;
   const [isSaved, setIsSaved] = useState(false);
   const meta = CATEGORY_META[order.category] || DEFAULT_META;
   const CategoryIcon = meta.icon;
@@ -131,7 +135,7 @@ export function OrderCard({ order }: OrderCardProps) {
 
   const handleOpenChat = (e: React.MouseEvent) => {
     e.stopPropagation();
-    router.push(`/chats?name=${encodeURIComponent(clientName)}&orderTitle=${encodeURIComponent(order.title)}`);
+    router.push(`/chats?user=${order.client_id}&order=${order.id}`);
   };
 
   return (
@@ -208,14 +212,16 @@ export function OrderCard({ order }: OrderCardProps) {
             {clientName}
           </span>
 
-          <button
-            type="button"
-            onClick={handleOpenChat}
-            className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1.5 shadow-violet transition-transform active:scale-95"
-          >
-            <MessageCircle className="w-3 h-3" />
-            <span>В чат</span>
-          </button>
+          {!isMine && order.client_id && (
+            <button
+              type="button"
+              onClick={handleOpenChat}
+              className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1.5 shadow-violet transition-transform active:scale-95"
+            >
+              <MessageCircle className="w-3 h-3" />
+              <span>В чат</span>
+            </button>
+          )}
         </div>
       </div>
     </motion.div>

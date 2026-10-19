@@ -152,22 +152,16 @@ export async function notifyExecutorResponseStatus(
       return { ok: false, error: "response_not_found" };
     }
 
-    // Обновляем статус в базе
-    await supabase
-      .from("responses")
-      .update({ status: params.status })
-      .eq("id", params.responseId);
+    const { data: order } = await supabase.from("orders").select("id, title, client_id, status").eq("id", response.order_id).maybeSingle();
+    if (!order) return { ok: false, error: "order_not_found" };
 
-    // Получаем данные заказа
-    const { data: order } = await supabase
-      .from("orders")
-      .select("id, title, client_id, status")
-      .eq("id", response.order_id)
-      .maybeSingle();
-
-    if (!order) {
-      return { ok: false, error: "order_not_found" };
+    if (params.reviewerTelegramId) {
+      const { data: owner } = await supabase.from("users").select("telegram_id").eq("id", order.client_id).maybeSingle();
+      if (!owner || Number(owner.telegram_id) !== params.reviewerTelegramId) return { ok: false, error: "forbidden" };
     }
+    if (response.status !== "pending") return { ok: false, error: "already_processed" };
+
+    await supabase.from("responses").update({ status: params.status }).eq("id", params.responseId);
 
     // Если принят — обновляем статус заказа на in_progress (если был active)
     if (params.status === "accepted" && order.status === "active") {
