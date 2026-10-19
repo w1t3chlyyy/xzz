@@ -3,15 +3,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { telegram } from "@/lib/telegram/bot-api";
 import { resolveWithdrawal } from "@/lib/withdrawals";
+import { confirmPayment, rejectPayment } from "@/lib/payments";
 import { cleanStr, forbidden, getCurrentUser, isAdminUser, toInt, unauthorized, UUID_RE } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+const BROADCAST_CHUNK = 25; // Telegram: ~30 сообщений/сек
 
 async function requireAdmin() {
   const me = await getCurrentUser();
   if (!me) return { error: unauthorized() };
   if (!isAdminUser(me)) return { error: forbidden() };
   return { me };
+}
+
+function cleanUrlOrId(value: unknown): string {
+  const v = cleanStr(value, 500);
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v)) return /^https:\/\//i.test(v) ? v : "";
+  return v; // file_id, уже загруженный в Telegram
 }
 
 export async function GET(req: NextRequest) {
@@ -41,6 +52,21 @@ export async function GET(req: NextRequest) {
     const revenue: Record<string, number> = {};
     (paid || []).forEach((p: any) => (revenue[p.currency] = (revenue[p.currency] || 0) + p.amount));
     return NextResponse.json({ stats: { users, executors, orders, activeOrders, responses, pendingPayments, revenue } });
+  }
+
+  if (view === "settings") {
+    const [{ data: s }, { data: r }] = await Promise.all([
+      admin.from("settings").select("welcome_message, welcome_photo_file_id, pro_price").eq("id", 1).maybeSingle(),
+      admin.from("payment_requisites").select("details").eq("id", 1).maybeSingle(),
+    ]);
+    return NextResponse.json({
+      settings: {
+        welcome_message: s?.welcome_message || "",
+        welcome_photo: s?.welcome_photo_file_id || "",
+        pro_price: s?.pro_price || 990,
+        requisites: r?.details || "",
+      },
+    });
   }
 
   if (view === "orders") {
@@ -89,7 +115,7 @@ export async function GET(req: NextRequest) {
   if (view === "payments") {
     const { data } = await admin
       .from("payments")
-      .select("id, amount, currency, method, status, tier, created_at, user:user_id(first_name, username)")
+      .select("id, amount, currency, method, status, tier, duration_days, proof_file_id, created_at, user:user_id(first_name, username, telegram_id)")
       .order("created_at", { ascending: false })
       .limit(40);
     return NextResponse.json({
@@ -103,6 +129,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
+  const me = auth.me!;
 
   const body = await req.json().catch(() => null);
   if (!body?.action) return NextResponse.json({ error: "Нет действия" }, { status: 400 });
@@ -172,8 +199,19 @@ export async function POST(req: NextRequest) {
 
     case "withdrawal_resolve": {
       if (!UUID_RE.test(body.id || "")) return NextResponse.json({ error: "Неверные данные" }, { status: 400 });
-      const r = await resolveWithdrawal(admin, body.id, !!body.paid, Number(auth.me!.telegram_id));
+      const r = await resolveWithdrawal(admin, body.id, !!body.paid, Number(me.telegram_id));
       if (!r.ok) return NextResponse.json({ error: r.reason === "already_processed" ? "Заявка уже обработана" : "Ошибка" }, { status: 409 });
+      return NextResponse.json({ success: true });
+    }
+
+    case "payment_confirm":
+    case "payment_reject": {
+      if (!UUID_RE.test(body.id || "")) return NextResponse.json({ error: "Неверные данные" }, { status: 400 });
+      const ok =
+        body.action === "payment_confirm"
+          ? await confirmPayment(admin, body.id, Number(me.telegram_id))
+          : await rejectPayment(admin, body.id, Number(me.telegram_id));
+      if (!ok) return NextResponse.json({ error: "Платёж не найден или уже оплачен" }, { status: 409 });
       return NextResponse.json({ success: true });
     }
 
@@ -195,6 +233,65 @@ export async function POST(req: NextRequest) {
       const code = cleanStr(body.code, 32).toUpperCase();
       await admin.from("promo_codes").update({ active: !!body.active }).eq("code", code);
       return NextResponse.json({ success: true });
+    }
+
+    // ---- настройки: приветствие, цена, реквизиты (аналог /setwelcome, /setprices, /setrequisites) ----
+    case "settings_save": {
+      const welcome = cleanStr(body.welcome_message, 4000);
+      const photo = cleanUrlOrId(body.welcome_photo);
+      const price = toInt(body.pro_price);
+      const requisites = cleanStr(body.requisites, 1000);
+
+      if (!welcome) return NextResponse.json({ error: "Текст приветствия не может быть пустым" }, { status: 400 });
+      if (photo && welcome.length > 1024) return NextResponse.json({ error: "С фото подпись не больше 1024 символов" }, { status: 400 });
+      if (!price || price < 1 || price > 1000000) return NextResponse.json({ error: "Цена: от 1 до 1 000 000 ₽" }, { status: 400 });
+      if (!requisites) return NextResponse.json({ error: "Укажите реквизиты" }, { status: 400 });
+
+      const now = new Date().toISOString();
+      const { error: e1 } = await admin
+        .from("settings")
+        .update({ welcome_message: welcome, welcome_photo_file_id: photo || null, pro_price: price, updated_at: now })
+        .eq("id", 1);
+      const { error: e2 } = await admin.from("payment_requisites").update({ details: requisites, updated_at: now }).eq("id", 1);
+      if (e1 || e2) return NextResponse.json({ error: "Не удалось сохранить" }, { status: 500 });
+      return NextResponse.json({ success: true });
+    }
+
+    // Пробная отправка HTML-текста (и фото) самому админу — проверить разметку до сохранения/рассылки
+    case "preview": {
+      const text = cleanStr(body.text, 4000);
+      const photo = cleanUrlOrId(body.photo);
+      if (!text) return NextResponse.json({ error: "Пустой текст" }, { status: 400 });
+      const r: any = photo
+        ? await telegram.sendPhoto(me.telegram_id, photo, { caption: text })
+        : await telegram.sendMessage(me.telegram_id, text);
+      if (!r?.ok) return NextResponse.json({ error: `Telegram отклонил: ${r?.description || "ошибка"}` }, { status: 400 });
+      return NextResponse.json({ success: true });
+    }
+
+    // ---- рассылка порциями: клиент вызывает по кругу, пока done=false (не упираемся в таймаут serverless) ----
+    case "broadcast_chunk": {
+      const text = cleanStr(body.text, 4000);
+      const offset = Math.max(0, toInt(body.offset) || 0);
+      if (!text) return NextResponse.json({ error: "Пустой текст" }, { status: 400 });
+
+      const { count } = await admin.from("users").select("*", { count: "exact", head: true }).not("telegram_id", "is", null);
+      const total = count || 0;
+
+      const { data: batch } = await admin
+        .from("users")
+        .select("telegram_id")
+        .not("telegram_id", "is", null)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + BROADCAST_CHUNK - 1);
+
+      const ids = (batch || []).map((u: any) => u.telegram_id).filter(Boolean) as number[];
+      const results = await Promise.all(ids.map((id) => telegram.sendMessage(id, text).then((r: any) => !!r?.ok)));
+      const sent = results.filter(Boolean).length;
+      const next = offset + ids.length;
+
+      return NextResponse.json({ success: true, sent, failed: ids.length - sent, next, total, done: ids.length < BROADCAST_CHUNK || next >= total });
     }
   }
 
