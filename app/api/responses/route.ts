@@ -2,114 +2,90 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyClientNewResponse } from "@/lib/telegram/notifications";
+import { cleanStr, getCurrentUser, paywall, toInt, unauthorized, userHasAccess, UUID_RE } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
+
+// Мои отклики (as=executor) или отклики на мои заказы (as=client)
+export async function GET(req: NextRequest) {
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
+
+  const as = new URL(req.url).searchParams.get("as") === "executor" ? "executor" : "client";
+  const admin = createAdminClient();
+  const select =
+    "id, order_id, executor_id, message, budget, days, status, created_at, executor:executor_id(id, first_name), order:order_id(title, category, client_id, status)";
+
+  let data: any[] | null = null;
+
+  if (as === "executor") {
+    const res = await admin.from("responses").select(select).eq("executor_id", me.id).order("created_at", { ascending: false }).limit(100);
+    data = res.data;
+  } else {
+    const { data: orders } = await admin.from("orders").select("id").eq("client_id", me.id);
+    const ids = (orders || []).map((o: any) => o.id);
+    if (ids.length) {
+      const res = await admin.from("responses").select(select).in("order_id", ids).order("created_at", { ascending: false }).limit(200);
+      data = res.data;
+    }
+  }
+
+  const responses = (data || []).map((r: any) => ({
+    ...r,
+    executor: Array.isArray(r.executor) ? r.executor[0] : r.executor,
+    order: Array.isArray(r.order) ? r.order[0] : r.order,
+  }));
+  return NextResponse.json({ responses });
+}
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const {
-      order_id,
-      executor_id,
-      message,
-      budget,
-      days,
-      executor_name,
-      executor_username,
-      telegram_id,
-    } = body;
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
+  if (!userHasAccess(me)) return paywall();
+  if (me.role !== "executor") return NextResponse.json({ error: "Откликаться могут только исполнители" }, { status: 403 });
 
-    if (!order_id || !message) {
-      return NextResponse.json({ error: "Missing required fields: order_id, message" }, { status: 400 });
-    }
+  const body = await req.json().catch(() => null);
+  const orderId = body?.order_id;
+  const message = cleanStr(body?.message, 2000);
+  const budget = toInt(body?.budget);
+  const days = toInt(body?.days);
 
-    const supabase = createAdminClient();
+  if (!orderId || !UUID_RE.test(orderId)) return NextResponse.json({ error: "Неверный заказ" }, { status: 400 });
+  if (message.length < 10) return NextResponse.json({ error: "Напишите предложение подробнее (минимум 10 символов)" }, { status: 400 });
+  if (!budget || budget < 1) return NextResponse.json({ error: "Укажите вашу цену" }, { status: 400 });
 
-    let targetExecId = executor_id;
+  const admin = createAdminClient();
+  const { data: order } = await admin.from("orders").select("id, client_id, status").eq("id", orderId).maybeSingle();
+  if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+  if (order.client_id === me.id) return NextResponse.json({ error: "Нельзя откликнуться на свой заказ" }, { status: 400 });
+  if (order.status !== "active") return NextResponse.json({ error: "Заказ уже не принимает отклики" }, { status: 409 });
 
-    // Обновляем/находим профиль исполнителя
-    if (targetExecId) {
-      const updatePayload: Record<string, any> = { updated_at: new Date().toISOString() };
-      if (executor_username) updatePayload.username = executor_username.replace(/^@/, "");
-      if (executor_name) updatePayload.first_name = executor_name;
-      if (telegram_id) updatePayload.telegram_id = Number(telegram_id);
-      await supabase.from("users").update(updatePayload).eq("id", targetExecId);
-    } else if (telegram_id) {
-      const { data: existingUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("telegram_id", Number(telegram_id))
-        .maybeSingle();
+  const { data: response, error } = await admin
+    .from("responses")
+    .insert({ order_id: orderId, executor_id: me.id, message, budget, days: days || null, status: "pending" })
+    .select("id, order_id, executor_id, message, budget, days, status, created_at")
+    .single();
 
-      if (existingUser) {
-        targetExecId = existingUser.id;
-        const updatePayload: Record<string, any> = { updated_at: new Date().toISOString() };
-        if (executor_username) updatePayload.username = executor_username.replace(/^@/, "");
-        if (executor_name) updatePayload.first_name = executor_name;
-        await supabase.from("users").update(updatePayload).eq("id", targetExecId);
-      }
-    }
-
-    if (!targetExecId) {
-      // Ищем любого существующего исполнителя или пользователя
-      const { data: anyUser } = await supabase.from("users").select("id").limit(1).maybeSingle();
-      if (anyUser) {
-        targetExecId = anyUser.id;
-      }
-    }
-
-    const budgetNum = budget ? parseInt(budget, 10) : 25000;
-
-    // Вставляем отклик в базу
-    const { data: newResponse, error: insertError } = await supabase
-      .from("responses")
-      .insert({
-        order_id,
-        executor_id: targetExecId,
-        message: message.trim(),
-        budget: budgetNum,
-        status: "pending",
-      })
-      .select("id, order_id, executor_id, message, budget, status, created_at")
-      .single();
-
-    if (insertError || !newResponse) {
-      console.error("POST /api/responses insert error:", insertError);
-      return NextResponse.json({ error: insertError?.message || "Failed to create response" }, { status: 500 });
-    }
-
-    const cleanUsername = executor_username ? executor_username.replace(/^@/, "") : "";
-    const cleanName = executor_name || "Специалист";
-
-    // 🔔 Отправляем уведомление ЗАКАЗЧИКУ прямо в Telegram-бота!
-    try {
-      await notifyClientNewResponse(supabase, {
-        responseId: newResponse.id,
-        orderId: order_id,
-        executorId: targetExecId,
-        executorName: cleanName,
-        executorUsername: cleanUsername,
-        budget: budgetNum,
-        days: days || 3,
-        message: message.trim(),
-      });
-    } catch (notifErr) {
-      console.error("Failed to notify client in Telegram:", notifErr);
-    }
-
-    return NextResponse.json({
-      success: true,
-      response: {
-        ...newResponse,
-        executor: {
-          id: targetExecId,
-          first_name: cleanName,
-          username: cleanUsername,
-          telegram_id: telegram_id ? Number(telegram_id) : null,
-          rating: 5.0,
-        },
-      },
-    });
-  } catch (err: any) {
-    console.error("POST /api/responses error:", err);
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
+  if (error || !response) {
+    if ((error as any)?.code === "23505") return NextResponse.json({ error: "Вы уже откликались на этот заказ" }, { status: 409 });
+    console.error("POST /api/responses:", error);
+    return NextResponse.json({ error: "Не удалось отправить отклик" }, { status: 500 });
   }
+
+  try {
+    await notifyClientNewResponse(admin, {
+      responseId: response.id,
+      orderId,
+      executorId: me.id,
+      executorName: me.first_name || "Специалист",
+      executorUsername: me.username || "",
+      budget,
+      days: days || undefined,
+      message,
+    });
+  } catch (err) {
+    console.error("notifyClientNewResponse failed:", err);
+  }
+
+  return NextResponse.json({ success: true, response });
 }

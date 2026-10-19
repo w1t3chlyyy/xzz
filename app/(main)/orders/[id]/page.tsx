@@ -3,99 +3,55 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { createClient } from "@/lib/supabase/client";
-import { getTelegramUser } from "@/lib/telegram/webapp";
-import { cn, getCategoryLabel, getCachedClientOrders } from "@/lib/utils";
-import {
-  ArrowLeft,
-  Calendar,
-  DollarSign,
-  User,
-  MessageSquare,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Send,
-  Eye,
-  Briefcase,
-  Tag,
-  Users,
-  Star,
-  ShieldCheck,
-  Zap,
-  Award,
-  Loader2,
-  Plus,
-  Heart,
-  Share2,
-  Bookmark,
-  Flag,
-  FileText,
-  Copy,
-  Check,
-  Sparkles,
-  ExternalLink,
-  ChevronRight,
-  Trash2,
-  Info,
-  CheckCheck
-} from "lucide-react";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ArrowLeft, Calendar, MessageSquare, CheckCircle, XCircle, Send, Briefcase, Tag, Users, Loader2, Plus,
+  Share2, Bookmark, Flag, FileText, Trash2, CheckCheck,
+} from "lucide-react";
+import { useApp } from "@/components/providers/AppProvider";
+import { cn, getCategoryLabel } from "@/lib/utils";
+import { openTelegramUrl } from "@/lib/links";
+import { SUPPORT_URL } from "@/lib/constants";
 
 interface Order {
   id: string;
   title: string;
   description: string;
   category: string;
-  budget_min: number;
-  budget_max: number;
+  budget_min: number | null;
+  budget_max: number | null;
   status: string;
   created_at: string;
   client_id: string;
-  client: {
-    first_name: string;
-    username: string;
-    rating?: number;
-    avatar?: string;
-  };
-  responses_count?: number;
-  is_favorited?: boolean;
+  client: { id: string; first_name: string };
 }
 
-interface Response {
+interface Resp {
   id: string;
-  order_id?: string;
-  executor_id?: string;
+  executor_id: string;
   message: string;
-  budget: number;
+  budget: number | null;
+  days: number | null;
   status: "pending" | "accepted" | "rejected";
   created_at: string;
-  executor: {
-    first_name: string;
-    username: string;
-    rating?: number;
-    avatar?: string;
-  };
+  executor: { id: string; first_name: string };
 }
 
 const BOOKMARKS_KEY = "1337_bookmarked_orders";
-const SUPPORT_URL = "https://t.me/F1337H";
 
-const AI_RESPONSE_TEMPLATES = [
-  {
-    title: "⚡️ Быстрый старт",
-    text: "Здравствуйте! Готов приступить к выполнению задания сегодня. Имею опыт более 3 лет в данном стеке. Сделаю качественно и в срок.",
-  },
-  {
-    title: "🎯 Подробный стек",
-    text: "Приветствую! Ознакомился с вашим ТЗ — задача понятна. Предлагаю надежное и быстрое решение. Готов обсудить детали в Telegram.",
-  },
-  {
-    title: "💼 Есть кейсы",
-    text: "Добрый день! Уже реализовывал похожие проекты, кейсы и отзывы есть в моем профиле. Предлагаю списаться в TG для уточнения нюансов.",
-  },
-];
+const ORDER_STATUS: Record<string, { text: string; cls: string }> = {
+  active: { text: "В поиске исполнителя", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  in_progress: { text: "В работе", cls: "bg-amber-50 text-amber-800 border-amber-200" },
+  completed: { text: "Завершён", cls: "bg-slate-50 text-slate-700 border-slate-200" },
+  cancelled: { text: "Отменён", cls: "bg-red-50 text-red-700 border-red-200" },
+};
+
+const RESP_STATUS: Record<string, { text: string; cls: string }> = {
+  pending: { text: "Ожидает", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  accepted: { text: "Принят", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  rejected: { text: "Отклонён", cls: "bg-red-50 text-red-700 border-red-200" },
+};
 
 function readBookmarks(): string[] {
   try {
@@ -106,1100 +62,406 @@ function readBookmarks(): string[] {
   }
 }
 
+const budgetText = (min: number | null, max: number | null) =>
+  min && max ? `${min.toLocaleString("ru-RU")} – ${max.toLocaleString("ru-RU")} ₽` : min ? `от ${min.toLocaleString("ru-RU")} ₽` : "По договорённости";
+
 export default function OrderDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const supabase = createClient();
+  const { role } = useApp();
   const [order, setOrder] = useState<Order | null>(null);
-  const [responses, setResponses] = useState<Response[]>([]);
+  const [responses, setResponses] = useState<Resp[]>([]);
+  const [isOwner, setIsOwner] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<"client" | "executor">("client");
-  const [user, setUser] = useState<any>(null);
-  const [tgUser, setTgUser] = useState<any>(null);
+  const [notFound, setNotFound] = useState(false);
 
-  // Response Form State (for executors)
-  const [showResponseForm, setShowResponseForm] = useState(false);
-  const [responseMessage, setResponseMessage] = useState("");
-  const [responseBudget, setResponseBudget] = useState("");
-  const [responseDays, setResponseDays] = useState("3");
+  const [showForm, setShowForm] = useState(false);
+  const [message, setMessage] = useState("");
+  const [budget, setBudget] = useState("");
+  const [days, setDays] = useState("3");
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [bookmarked, setBookmarked] = useState(false);
 
-  // Interaction State
-  const [isBookmarked, setIsBookmarked] = useState(false);
-  const [shareCopied, setShareCopied] = useState(false);
-  const [contactCopied, setContactCopied] = useState(false);
-  const [responseActionError, setResponseActionError] = useState<string | null>(null);
-
-  const loadUser = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      const extractedTg = getTelegramUser();
-      if (extractedTg) {
-        setTgUser(extractedTg);
+      const res = await fetch(`/api/orders/${params.id}`, { cache: "no-store" });
+      if (!res.ok) {
+        setNotFound(true);
+        return;
       }
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-    } catch (e) {
-      console.warn("Error getting user:", e);
-    }
-  }, [supabase]);
-
-  const loadOrder = useCallback(async () => {
-    setLoading(true);
-    try {
-      // 1. Пробуем загрузить через серверный API роут (с полными контактами и откликами)
-      try {
-        const res = await fetch(`/api/orders/${params.id}`);
-        if (res.ok) {
-          const apiData = await res.json();
-          if (apiData.order) {
-            setOrder(apiData.order);
-            setResponses(apiData.responses || []);
-            return;
-          }
-        }
-      } catch (apiErr) {
-        console.warn("Could not fetch order from /api/orders/[id]:", apiErr);
-      }
-
-      // 2. Fallback: Загружаем заказ из Supabase
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select(
-          `
-          *,
-          client:client_id (
-            first_name,
-            username,
-            telegram_id
-          )
-        `
-        )
-        .eq("id", params.id)
-        .single();
-
-      if (orderError || !orderData) {
-        // Fallback: ищем в локальном кэше
-        const cached = getCachedClientOrders<Order>();
-        const localFound = cached.find((o) => o.id === params.id);
-        if (localFound) {
-          setOrder(localFound);
-        } else {
-          setOrder(null);
-        }
-      } else {
-        setOrder(orderData);
-      }
-
-      // 3. Загружаем отклики из Supabase
-      const { data: responsesData } = await supabase
-        .from("responses")
-        .select(
-          `
-          *,
-          executor:executor_id (
-            first_name,
-            username,
-            telegram_id
-          )
-        `
-        )
-        .eq("order_id", params.id)
-        .order("created_at", { ascending: false });
-
-      // Подмешиваем локальные отклики
-      let localResponses: Response[] = [];
-      try {
-        const localKey = "1337_order_responses_" + params.id;
-        const saved = JSON.parse(localStorage.getItem(localKey) || "[]");
-        if (Array.isArray(saved)) {
-          localResponses = saved;
-        }
-      } catch (e) {
-        console.warn("Could not read local responses", e);
-      }
-
-      const merged = [...(responsesData || [])];
-      for (const lr of localResponses) {
-        if (!merged.some((m) => m.id === lr.id)) {
-          merged.push(lr);
-        }
-      }
-
-      setResponses(merged);
-    } catch (error) {
-      console.error("Error loading order:", error);
+      const json = await res.json();
+      setOrder(json.order);
+      setResponses(json.responses);
+      setIsOwner(json.isOwner);
+      setBudget((prev) => prev || String(json.order.budget_min || ""));
+    } catch {
+      setNotFound(true);
     } finally {
       setLoading(false);
     }
-  }, [supabase, params.id]);
+  }, [params.id]);
 
   useEffect(() => {
-    const savedRole = (localStorage.getItem("1337_role") || localStorage.getItem("fiolet_role") || "client") as "client" | "executor";
-    setRole(savedRole);
-    loadOrder();
-    loadUser();
-    setIsBookmarked(readBookmarks().includes(params.id));
-  }, [loadOrder, loadUser, params.id]);
+    void load();
+    setBookmarked(readBookmarks().includes(params.id));
+  }, [load, params.id]);
 
-  // Предзаполняем бюджет отклика
-  useEffect(() => {
-    if (order && !responseBudget) {
-      setResponseBudget(order.budget_min ? order.budget_min.toString() : "25000");
-    }
-  }, [order, responseBudget]);
+  const flash = (text: string) => {
+    setToast(text);
+    setTimeout(() => setToast(null), 3000);
+  };
 
-  const handleToggleBookmark = () => {
+  const toggleBookmark = () => {
     const saved = readBookmarks();
-    const next = isBookmarked ? saved.filter((id) => id !== params.id) : [...saved, params.id];
+    const next = bookmarked ? saved.filter((id) => id !== params.id) : [...saved, params.id];
     try {
       localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(next));
-    } catch (e) {
-      console.warn("Bookmark save failed:", e);
+    } catch {
+      // ignore
     }
-    setIsBookmarked(!isBookmarked);
+    setBookmarked(!bookmarked);
   };
 
-  const handleShare = async () => {
-    const url = typeof window !== "undefined" ? window.location.href : "";
-    const shareApi = typeof navigator !== "undefined" ? (navigator as any).share : null;
-
-    if (shareApi) {
-      try {
-        await shareApi({ title: order?.title || "Заказ на бирже 1337", url });
-        return;
-      } catch (e) {
-        return;
+  const share = async () => {
+    const url = window.location.href;
+    try {
+      if ((navigator as any).share) await (navigator as any).share({ title: order?.title, url });
+      else {
+        await navigator.clipboard.writeText(url);
+        flash("Ссылка скопирована");
       }
-    }
-
-    try {
-      await navigator.clipboard.writeText(url);
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
-    } catch (e) {
-      console.warn("Clipboard write failed:", e);
+    } catch {
+      // отмена шаринга
     }
   };
 
-  const handleCopyContact = (username: string) => {
-    const clean = username.replace(/^@/, "");
-    if (!clean) return;
-    try {
-      navigator.clipboard.writeText("@" + clean);
-      setContactCopied(true);
-      setTimeout(() => setContactCopied(false), 2000);
-    } catch (e) {
-      console.warn("Copy contact failed:", e);
-    }
+  const report = () => openTelegramUrl(`${SUPPORT_URL}?text=${encodeURIComponent(`Жалоба на заказ: ${order?.title} (ID: ${params.id})`)}`);
+
+  const decide = async (id: string, status: "accepted" | "rejected") => {
+    const res = await fetch(`/api/responses/${id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (res.ok) await load();
+    else flash((await res.json().catch(() => ({}))).error || "Не удалось обновить отклик");
   };
 
-  const handleReport = () => {
-    const reportText = "Жалоба на заказ: " + (order?.title || "без названия") + " (ID: " + params.id + ")";
-    const url = SUPPORT_URL + "?text=" + encodeURIComponent(reportText);
-    window.open(url, "_blank", "noopener,noreferrer");
+  const closeOrder = async (status: "completed" | "cancelled") => {
+    if (!confirm(status === "completed" ? "Отметить заказ завершённым?" : "Отменить заказ?")) return;
+    const res = await fetch(`/api/orders/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    if (res.ok) await load();
+    else flash((await res.json().catch(() => ({}))).error || "Ошибка");
   };
 
-  // Действие заказчика: принять/отклонить отклик исполнителя (с отправкой уведомления исполнителю в Telegram-бота)
-  const handleUpdateResponseStatus = async (responseId: string, status: "accepted" | "rejected") => {
-    setResponseActionError(null);
-    const previous = responses;
-    setResponses((prev) => prev.map((r) => (r.id === responseId ? { ...r, status } : r)));
-    if (status === "accepted") {
-      setOrder((prev) => (prev ? { ...prev, status: "in_progress" } : null));
-    }
-
-    try {
-      const res = await fetch(`/api/responses/${responseId}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-
-      if (!res.ok) {
-        const { error } = await supabase.from("responses").update({ status }).eq("id", responseId);
-        if (error) throw error;
-        if (status === "accepted" && order?.id) {
-          await supabase.from("orders").update({ status: "in_progress" }).eq("id", order.id);
-        }
-      }
-    } catch (error) {
-      console.error("Error updating response status:", error);
-      try {
-        const localKey = "1337_order_responses_" + params.id;
-        const saved: Response[] = JSON.parse(localStorage.getItem(localKey) || "[]");
-        const updated = saved.map((r) => (r.id === responseId ? { ...r, status } : r));
-        localStorage.setItem(localKey, JSON.stringify(updated));
-      } catch (e) {
-        setResponses(previous);
-        setResponseActionError("Не удалось обновить статус отклика");
-      }
-    }
+  const deleteOrder = async () => {
+    if (!confirm("Удалить заказ вместе с откликами? Это нельзя отменить.")) return;
+    const res = await fetch(`/api/orders/${params.id}`, { method: "DELETE" });
+    if (res.ok) router.replace("/feed");
+    else flash("Не удалось удалить");
   };
 
-  // Действие исполнителя: отозвать свой отклик
-  const handleDeleteMyResponse = async (responseId: string) => {
-    try {
-      await supabase.from("responses").delete().eq("id", responseId);
-      const localKey = "1337_order_responses_" + params.id;
-      const saved: Response[] = JSON.parse(localStorage.getItem(localKey) || "[]");
-      const filtered = saved.filter((r) => r.id !== responseId);
-      localStorage.setItem(localKey, JSON.stringify(filtered));
-
-      setResponses((prev) => prev.filter((r) => r.id !== responseId));
-    } catch (e) {
-      console.error("Error deleting response:", e);
-    }
+  const withdraw = async (id: string) => {
+    if (!confirm("Отозвать отклик?")) return;
+    const res = await fetch(`/api/responses/${id}`, { method: "DELETE" });
+    if (res.ok) await load();
+    else flash((await res.json().catch(() => ({}))).error || "Не удалось отозвать");
   };
 
-  // Действие исполнителя: отправить отклик (с отправкой уведомления заказчику в Telegram-бота)
-  const handleSubmitResponse = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!order) return;
-    if (!responseMessage.trim()) {
-      setSubmitError("Пожалуйста, напишите ваше предложение или подход к задаче");
-      return;
-    }
-
     setSubmitting(true);
-    setSubmitError(null);
-
+    setError(null);
     try {
-      const tg = tgUser || getTelegramUser();
-      const currentExecutorName = tg?.displayName || "Исполнитель";
-      const currentExecutorUsername = tg?.username?.replace(/^@/, "") || "executor";
-      const budgetNum = parseInt(responseBudget) || order.budget_min || 25000;
-
-      let insertedResponse: Response | null = null;
-
-      // 1. Отправляем через серверный API роут для надежной записи и мгновенной отправки уведомления в Telegram заказчика
-      try {
-        const res = await fetch("/api/responses", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            order_id: order.id,
-            executor_id: user?.id || null,
-            message: responseMessage.trim(),
-            budget: budgetNum,
-            days: parseInt(responseDays) || 3,
-            executor_name: currentExecutorName,
-            executor_username: currentExecutorUsername,
-            telegram_id: tg?.id || null,
-          }),
-        });
-
-        if (res.ok) {
-          const apiRes = await res.json();
-          if (apiRes.response) {
-            insertedResponse = {
-              id: apiRes.response.id,
-              order_id: order.id,
-              executor_id: apiRes.response.executor_id || user?.id,
-              message: apiRes.response.message,
-              budget: apiRes.response.budget,
-              status: apiRes.response.status || "pending",
-              created_at: apiRes.response.created_at || new Date().toISOString(),
-              executor: {
-                first_name: currentExecutorName,
-                username: currentExecutorUsername,
-                rating: 5.0,
-              },
-            };
-          }
-        }
-      } catch (apiErr) {
-        console.warn("API /api/responses failed, falling back to direct insert:", apiErr);
+      const res = await fetch("/api/responses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: order.id, message, budget, days }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || "Не удалось отправить отклик");
+        return;
       }
-
-      // 2. Direct Fallback
-      if (!insertedResponse && user) {
-        try {
-          await supabase
-            .from("users")
-            .update({
-              username: currentExecutorUsername,
-              first_name: currentExecutorName,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", user.id);
-        } catch (uErr) {
-          console.warn("Could not sync executor profile:", uErr);
-        }
-
-        const { data, error } = await supabase
-          .from("responses")
-          .insert({
-            order_id: order.id,
-            executor_id: user.id,
-            message: responseMessage.trim(),
-            budget: budgetNum,
-            status: "pending",
-          })
-          .select("id, created_at")
-          .single();
-
-        if (!error && data) {
-          insertedResponse = {
-            id: data.id,
-            order_id: order.id,
-            executor_id: user.id,
-            message: responseMessage.trim(),
-            budget: budgetNum,
-            status: "pending",
-            created_at: data.created_at || new Date().toISOString(),
-            executor: {
-              first_name: currentExecutorName,
-              username: currentExecutorUsername,
-              rating: 5.0,
-            },
-          };
-        }
-      }
-
-      if (!insertedResponse) {
-        insertedResponse = {
-          id: "resp-" + Date.now(),
-          order_id: order.id,
-          executor_id: user?.id || "local-executor",
-          message: responseMessage.trim(),
-          budget: budgetNum,
-          status: "pending",
-          created_at: new Date().toISOString(),
-          executor: {
-            first_name: currentExecutorName,
-            username: currentExecutorUsername,
-            rating: 5.0,
-          },
-        };
-      }
-
-      try {
-        const localKey = "1337_order_responses_" + params.id;
-        const saved: Response[] = JSON.parse(localStorage.getItem(localKey) || "[]");
-        localStorage.setItem(localKey, JSON.stringify([insertedResponse, ...saved]));
-
-        const allMyKey = "1337_my_all_responses";
-        const myAll: any[] = JSON.parse(localStorage.getItem(allMyKey) || "[]");
-        const orderSummary = {
-          ...insertedResponse,
-          order: {
-            title: order.title,
-            category: order.category,
-          },
-        };
-        localStorage.setItem(allMyKey, JSON.stringify([orderSummary, ...myAll]));
-      } catch (lErr) {
-        console.warn("Failed to write to localStorage:", lErr);
-      }
-
-      setResponses((prev) => [insertedResponse!, ...prev]);
-      setSubmitSuccess(true);
-      setShowResponseForm(false);
-      setResponseMessage("");
-
-      setTimeout(() => {
-        setSubmitSuccess(false);
-      }, 4000);
-    } catch (error: any) {
-      console.error("Error submitting response:", error);
-      setSubmitError(error?.message || "Не удалось отправить отклик, попробуйте ещё раз");
+      setShowForm(false);
+      setMessage("");
+      flash("Отклик отправлен — заказчик получил уведомление");
+      await load();
+    } catch {
+      setError("Ошибка сети, попробуйте ещё раз");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
-      case "in_progress":
-        return "bg-amber-50 text-amber-800 border-amber-200";
-      case "closed":
-      case "completed":
-        return "bg-slate-50 text-slate-700 border-slate-200";
-      case "cancelled":
-        return "bg-red-50 text-red-700 border-red-200";
-      default:
-        return "bg-purple-50 text-violet-700 border-purple-200";
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case "active":
-        return "В поиске исполнителя";
-      case "in_progress":
-        return "В работе";
-      case "closed":
-      case "completed":
-        return "Завершен";
-      case "cancelled":
-        return "Отменен";
-      default:
-        return status;
-    }
-  };
+  const openChat = (otherId: string) => router.push(`/chats?user=${otherId}&order=${params.id}`);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+        <Loader2 className="w-8 h-8 text-violet-600 animate-spin" />
       </div>
     );
   }
 
-  if (!order) {
+  if (notFound || !order) {
     return (
       <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center space-y-3">
-        <div className="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center mx-auto">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
           <Briefcase className="w-8 h-8" />
         </div>
-        <div>
-          <h3 className="text-sm font-extrabold text-slate-900">Заказ не найден</h3>
-          <p className="text-xs text-slate-500 mt-1">Возможно, он был удален или перемещен</p>
-        </div>
-        <Link href="/feed" className="btn-primary py-2.5 px-5 rounded-2xl text-xs font-bold inline-flex items-center gap-2 shadow-violet">
-          <span>Вернуться к заказам</span>
+        <h3 className="text-sm font-extrabold">Заказ не найден</h3>
+        <p className="text-xs text-slate-500">Возможно, он был удалён</p>
+        <Link href="/feed" className="btn-primary py-2.5 px-5 rounded-2xl text-xs font-bold inline-flex shadow-violet">
+          Вернуться к заказам
         </Link>
       </div>
     );
   }
 
-  // Определение контекста пользователя и роли:
-  const isOwner = Boolean(user?.id && order.client_id === user.id) || (role === "client" && !user?.id);
-  const isClientRole = role === "client" || isOwner;
-  const isExecutorRole = role === "executor" && !isOwner;
-
-  // Контактные данные заказчика
-  const clientDisplayName = isOwner ? "Вы (Заказчик)" : order.client?.first_name || "Заказчик";
-
-  // Проверка отклика текущего исполнителя
-  const myResponse = responses.find(
-    (r) =>
-      (user?.id && r.executor_id === user.id) ||
-      (r.executor?.first_name && r.executor.first_name === (tgUser?.displayName || "Исполнитель"))
-  );
+  const st = ORDER_STATUS[order.status] || ORDER_STATUS.active;
+  const canRespond = !isOwner && role === "executor" && order.status === "active" && responses.length === 0;
+  const myResponse = !isOwner ? responses[0] : undefined;
+  const isOpen = order.status === "active" || order.status === "in_progress";
 
   return (
     <div className="space-y-3.5 pb-32 text-slate-900 font-sans">
-      {/* Top Header Navigation */}
       <div className="flex items-center justify-between">
-        <Link href="/feed">
-          <motion.button
-            whileTap={{ scale: 0.92 }}
-            className="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 hover:border-violet-300 hover:text-violet-700 shadow-xs transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </motion.button>
+        <Link href="/feed" className="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 hover:border-violet-300 shadow-xs">
+          <ArrowLeft className="w-4 h-4" />
         </Link>
-
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleToggleBookmark}
-            title="Сохранить заказ"
-            className={cn(
-              "p-2.5 rounded-xl border transition-colors",
-              isBookmarked ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-slate-200 hover:border-violet-300"
-            )}
-          >
-            <Bookmark className={cn("w-4 h-4", isBookmarked ? "fill-white" : "text-slate-500")} />
+          <button onClick={toggleBookmark} className={cn("p-2.5 rounded-xl border", bookmarked ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-slate-200")}>
+            <Bookmark className={cn("w-4 h-4", bookmarked ? "fill-white" : "text-slate-500")} />
           </button>
-
-          <div className="relative">
-            <button
-              type="button"
-              onClick={handleShare}
-              title="Поделиться ссылкой"
-              className="p-2.5 rounded-xl bg-white border border-slate-200 hover:border-violet-300 transition-colors"
-            >
-              <Share2 className="w-4 h-4 text-slate-500" />
+          <button onClick={share} className="p-2.5 rounded-xl bg-white border border-slate-200">
+            <Share2 className="w-4 h-4 text-slate-500" />
+          </button>
+          {!isOwner && (
+            <button onClick={report} className="p-2.5 rounded-xl bg-white border border-slate-200 hover:border-rose-300">
+              <Flag className="w-4 h-4 text-slate-500" />
             </button>
-
-            <AnimatePresence>
-              {shareCopied ? (
-                <motion.span
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute top-full right-0 mt-1.5 text-[10px] font-bold text-white bg-slate-900 px-2.5 py-1 rounded-lg whitespace-nowrap z-10 shadow-lg"
-                >
-                  Ссылка скопирована!
-                </motion.span>
-              ) : null}
-            </AnimatePresence>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleReport}
-            title="Пожаловаться"
-            className="p-2.5 rounded-xl bg-white border border-slate-200 hover:border-rose-300 transition-colors"
-          >
-            <Flag className="w-4 h-4 text-slate-500" />
-          </button>
+          )}
         </div>
       </div>
 
-      {/* Toast: Успешный отклик исполнителя */}
       <AnimatePresence>
-        {submitSuccess && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="bg-emerald-600 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between gap-3"
-          >
-            <div className="flex items-center gap-2.5">
-              <CheckCircle className="w-5 h-5 text-emerald-200 shrink-0" />
-              <div>
-                <div className="text-xs font-extrabold">Отклик успешно отправлен!</div>
-                <div className="text-[11px] text-emerald-100">Заказчик увидит ваше предложение и напишет в чат.</div>
-              </div>
-            </div>
+        {toast && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-slate-900 text-white text-xs font-bold p-3 rounded-2xl">
+            {toast}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Main Order Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.04)] space-y-4"
-      >
+      <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.04)] space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-extrabold text-slate-900 break-words leading-tight">{order.title}</h1>
-              <span className={cn("text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0", getStatusColor(order.status))}>
-                {getStatusText(order.status)}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 flex-wrap">
+            <h1 className="text-lg font-extrabold break-words leading-tight">{order.title}</h1>
+            <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
+              <span className={cn("text-[10px] font-bold px-2.5 py-0.5 rounded-full border", st.cls)}>{st.text}</span>
               <span className="flex items-center gap-1 font-semibold text-violet-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100">
                 <Tag className="w-3.5 h-3.5" />
-                <span>{getCategoryLabel(order.category)}</span>
+                {getCategoryLabel(order.category)}
               </span>
-              <span className="flex items-center gap-1 font-medium">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <span>{new Date(order.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}</span>
+              <span className="flex items-center gap-1 text-slate-500 font-medium">
+                <Calendar className="w-3.5 h-3.5" />
+                {new Date(order.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
               </span>
             </div>
           </div>
-
           <div className="text-right shrink-0 bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-            <div className="text-sm font-extrabold text-violet-700">
-              {order.budget_min?.toLocaleString()} - {order.budget_max?.toLocaleString()} ₽
-            </div>
-            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Бюджет задачи</div>
+            <div className="text-sm font-extrabold text-violet-700">{budgetText(order.budget_min, order.budget_max)}</div>
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Бюджет</div>
           </div>
         </div>
 
-        {/* БЛОК ДИАЛОГА: БЕЗОПАСНЫЙ ЧАТ 1337 (ТОЛЬКО ИМЯ, БЕЗ КОНТАКТОВ) */}
-        {isClientRole ? (
-          <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-100 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-sm shadow-xs shrink-0">
-                {clientDisplayName[0] || "З"}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-extrabold text-slate-900 truncate">{clientDisplayName}</span>
-                  <span className="badge-violet text-[9px] font-bold px-1.5 py-0.2 rounded">Ваш заказ</span>
-                </div>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Общение по сделке ведется в официальном чате
-                </p>
-              </div>
+        <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-100 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-sm shrink-0">{order.client.first_name[0] || "З"}</div>
+            <div className="min-w-0">
+              <div className="text-sm font-extrabold truncate">{isOwner ? "Вы (заказчик)" : order.client.first_name}</div>
+              <p className="text-xs text-slate-500 font-medium">Общение ведётся в чатах биржи</p>
             </div>
-            <button
-              type="button"
-              onClick={() => router.push(`/chats?orderTitle=${encodeURIComponent(order.title)}`)}
-              className="btn-primary py-2 px-3 rounded-xl text-xs font-bold shrink-0 shadow-violet flex items-center gap-1.5"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Открыть чат</span>
-            </button>
           </div>
-        ) : (
-          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-violet-50 to-slate-50 border border-purple-100 flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-2xl bg-violet-600 text-white font-extrabold flex items-center justify-center text-base shadow-xs shrink-0">
-                {clientDisplayName[0] || "З"}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-extrabold text-slate-900 truncate">{clientDisplayName}</span>
-                  <span className="badge-violet text-[9px] font-bold px-1.5 py-0.2 rounded">Заказчик</span>
-                </div>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Безопасный диалог внутри биржи 1337
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  `/chats?name=${encodeURIComponent(clientDisplayName)}&orderTitle=${encodeURIComponent(order.title)}`
-                )
-              }
-              className="btn-primary py-2 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-violet shrink-0 transition-transform active:scale-95"
-            >
+          {!isOwner && (
+            <button onClick={() => openChat(order.client_id)} className="btn-primary py-2 px-3.5 rounded-xl text-xs font-bold shrink-0 shadow-violet flex items-center gap-1.5">
               <MessageSquare className="w-3.5 h-3.5" />
-              <span>Написать в чат</span>
+              <span>В чат</span>
+            </button>
+          )}
+        </div>
+
+        <div>
+          <h2 className="text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 mb-2">
+            <FileText className="w-4 h-4 text-violet-600" />
+            Описание задачи
+          </h2>
+          <div className="bg-slate-50 rounded-2xl p-4 text-xs text-slate-800 leading-relaxed whitespace-pre-wrap border border-slate-100">{order.description}</div>
+        </div>
+
+        {isOwner && isOpen && (
+          <div className="flex items-center gap-2 pt-1 flex-wrap">
+            {order.status === "in_progress" && (
+              <button onClick={() => closeOrder("completed")} className="btn-primary py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-1.5">
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>Завершить заказ</span>
+              </button>
+            )}
+            <button onClick={() => closeOrder("cancelled")} className="py-2 px-3.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
+              Отменить заказ
+            </button>
+            <button onClick={deleteOrder} className="py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 text-xs font-bold flex items-center gap-1">
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Удалить</span>
             </button>
           </div>
         )}
+        {isOwner && !isOpen && (
+          <button onClick={deleteOrder} className="py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 text-xs font-bold flex items-center gap-1">
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Удалить</span>
+          </button>
+        )}
+      </div>
 
-        {/* Task Description */}
-        <div>
-          <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5 mb-2">
-            <FileText className="w-4 h-4 text-violet-600" />
-            Техническое задание и требования
-          </h2>
-          <div className="bg-slate-50 rounded-2xl p-4 text-xs text-slate-800 leading-relaxed whitespace-pre-wrap border border-slate-100">
-            {order.description || "Описание задачи отсутствует."}
-          </div>
-        </div>
-
-        {/* Order Stats */}
-        <div className="grid grid-cols-3 gap-2 pt-1">
-          <div className="text-center p-2.5 rounded-2xl bg-purple-50/80 border border-purple-100">
-            <div className="text-sm font-extrabold text-violet-700">{responses.length}</div>
-            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Откликов</div>
-          </div>
-          <div className="text-center p-2.5 rounded-2xl bg-emerald-50/80 border border-emerald-100">
-            <div className="text-sm font-extrabold text-emerald-700">
-              {responses.filter((r) => r.status === "accepted").length}
-            </div>
-            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Принято</div>
-          </div>
-          <div className="text-center p-2.5 rounded-2xl bg-amber-50/80 border border-amber-100">
-            <div className="text-sm font-extrabold text-amber-700">
-              {responses.filter((r) => r.status === "pending").length}
-            </div>
-            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">В ожидании</div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* ДЛЯ ИСПОЛНИТЕЛЯ: Плашка отправленного отклика (если уже откликнулся) */}
-      {isExecutorRole && myResponse && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-purple-50/90 border border-purple-200 rounded-3xl p-4.5 space-y-3 shadow-xs"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-violet-600 text-white flex items-center justify-center">
-                <CheckCheck className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-xs font-extrabold text-slate-900">Ваш отклик на этот заказ</h3>
-                <p className="text-[11px] text-slate-500 font-medium">Отправлен {new Date(myResponse.created_at).toLocaleDateString("ru-RU")}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "text-[10.5px] font-bold px-2.5 py-0.5 rounded-full border",
-                  myResponse.status === "accepted"
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : myResponse.status === "rejected"
-                    ? "bg-red-50 text-red-700 border-red-200"
-                    : "bg-amber-50 text-amber-700 border-amber-200"
-                )}
-              >
-                {myResponse.status === "accepted"
-                  ? "Принят заказчиком"
-                  : myResponse.status === "rejected"
-                  ? "Отклонен"
-                  : "Ожидает рассмотрения"}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => handleDeleteMyResponse(myResponse.id)}
-                title="Отозвать отклик"
-                className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl p-3 border border-purple-100 text-xs text-slate-700 leading-relaxed font-medium">
-            {myResponse.message}
-          </div>
-
-          <div className="flex items-center justify-between text-xs pt-0.5">
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  `/chats?name=${encodeURIComponent(clientDisplayName)}&orderTitle=${encodeURIComponent(order.title)}`
-                )
-              }
-              className="text-[11px] font-bold text-violet-600 hover:underline inline-flex items-center gap-1"
-            >
-              <MessageSquare className="w-3 h-3" />
-              <span>Обсудить в чате</span>
-            </button>
-          </div>
-        </motion.div>
-      )}
-
-      {/* СЕКЦИЯ ОТКЛИКОВ */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.04)] space-y-4"
-      >
+      <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_4px_25px_rgba(0,0,0,0.04)] space-y-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-              <Users className="w-4 h-4 text-violet-600" />
-              <span>{isClientRole ? "Отклики исполнителей" : "Отклики на заказ"} ({responses.length})</span>
-            </h2>
-            <p className="text-slate-400 text-[11px] font-medium mt-0.5">
-              {isClientRole ? "Специалисты, готовые выполнить ваше задание" : "Список предложений по данному заданию"}
-            </p>
-          </div>
-
-          {/* Кнопка «Откликнуться» доступна ТОЛЬКО исполнителю, если он еще не откликался */}
-          {isExecutorRole && !myResponse && order.status === "active" && (
-            <button
-              onClick={() => setShowResponseForm(!showResponseForm)}
-              className="btn-primary text-xs font-extrabold py-2 px-3.5 rounded-xl flex items-center gap-1.5 shadow-violet"
-            >
+          <h2 className="text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5">
+            <Users className="w-4 h-4 text-violet-600" />
+            <span>{isOwner ? `Отклики исполнителей (${responses.length})` : "Ваш отклик"}</span>
+          </h2>
+          {canRespond && (
+            <button onClick={() => setShowForm((v) => !v)} className="btn-primary text-xs font-extrabold py-2 px-3.5 rounded-xl flex items-center gap-1.5 shadow-violet">
               <Plus className="w-3.5 h-3.5" />
               <span>Откликнуться</span>
             </button>
           )}
         </div>
 
-        {responseActionError ? (
-          <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl p-2.5">
-            {responseActionError}
-          </div>
-        ) : null}
-
-        {/* ФОРМА ОТКЛИКА (ТОЛЬКО ДЛЯ ИСПОЛНИТЕЛЯ) */}
         <AnimatePresence>
-          {isExecutorRole && showResponseForm && !myResponse ? (
+          {canRespond && showForm && (
             <motion.form
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              onSubmit={handleSubmitResponse}
-              className="bg-purple-50/80 border border-purple-200 rounded-3xl p-4.5 space-y-3.5 overflow-hidden"
+              onSubmit={submit}
+              className="bg-purple-50/80 border border-purple-200 rounded-3xl p-4 space-y-3 overflow-hidden"
             >
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-violet-600" />
-                  Отклик на задание
-                </h3>
-                <span className="text-[10px] text-slate-500 font-bold bg-white px-2 py-0.5 rounded-lg border border-purple-100">
-                  Контакты из профиля
-                </span>
-              </div>
-
-              {submitError ? (
-                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl p-2.5">
-                  {submitError}
-                </div>
-              ) : null}
-
-              {/* Быстрые шаблоны */}
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                  <Zap className="w-3 h-3 text-amber-500" />
-                  <span>Быстрые шаблоны отклика:</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                  {AI_RESPONSE_TEMPLATES.map((tmpl, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setResponseMessage(tmpl.text)}
-                      className="p-2 text-left rounded-xl bg-white hover:bg-violet-50 border border-purple-100 hover:border-violet-300 text-[10.5px] font-medium text-slate-700 transition-colors"
-                    >
-                      <div className="font-bold text-violet-700 mb-0.5">{tmpl.title}</div>
-                      <div className="line-clamp-2 text-slate-500">{tmpl.text}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
+              {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl p-2.5">{error}</div>}
               <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1">
-                  Ваше предложение заказчику *
-                </label>
+                <label className="block text-xs font-bold mb-1">Ваше предложение заказчику *</label>
                 <textarea
-                  value={responseMessage}
-                  onChange={(e) => setResponseMessage(e.target.value)}
-                  placeholder="Опишите, какой у вас опыт в подобных задачах, как планируете реализовывать и в какие сроки..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
                   rows={4}
-                  className="w-full p-3.5 rounded-2xl bg-white border border-purple-200 text-slate-900 text-xs font-medium focus:border-violet-600 focus:outline-none resize-none leading-relaxed"
+                  maxLength={2000}
+                  placeholder="Опыт в подобных задачах, как планируете делать и в какие сроки..."
+                  className="w-full p-3.5 rounded-2xl bg-white border border-purple-200 text-xs font-medium focus:border-violet-600 focus:outline-none resize-none leading-relaxed"
                   required
                 />
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-900 mb-1">Ваша цена (₽) *</label>
-                  <input
-                    type="number"
-                    value={responseBudget}
-                    onChange={(e) => setResponseBudget(e.target.value)}
-                    placeholder={order.budget_min?.toString() || "25000"}
-                    className="w-full p-3 rounded-2xl bg-white border border-purple-200 text-slate-900 text-xs font-medium focus:border-violet-600 focus:outline-none"
-                    required
-                  />
+                  <label className="block text-xs font-bold mb-1">Ваша цена (₽) *</label>
+                  <input type="number" min={1} value={budget} onChange={(e) => setBudget(e.target.value)} className="w-full p-3 rounded-2xl bg-white border border-purple-200 text-xs font-medium focus:border-violet-600 focus:outline-none" required />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-slate-900 mb-1">Срок выполнения (дней)</label>
-                  <input
-                    type="number"
-                    value={responseDays}
-                    onChange={(e) => setResponseDays(e.target.value)}
-                    placeholder="3"
-                    className="w-full p-3 rounded-2xl bg-white border border-purple-200 text-slate-900 text-xs font-medium focus:border-violet-600 focus:outline-none"
-                  />
+                  <label className="block text-xs font-bold mb-1">Срок (дней)</label>
+                  <input type="number" min={1} value={days} onChange={(e) => setDays(e.target.value)} className="w-full p-3 rounded-2xl bg-white border border-purple-200 text-xs font-medium focus:border-violet-600 focus:outline-none" />
                 </div>
               </div>
-
-              <div className="p-3 bg-white rounded-2xl border border-purple-100 flex items-center justify-between text-[11px] text-slate-600">
-                <div className="flex items-center gap-2">
-                  <User className="w-3.5 h-3.5 text-violet-600" />
-                  <span>
-                    Отклик от: <b>{tgUser?.displayName || "Исполнитель"}</b>
-                  </span>
-                </div>
-                <span className="text-slate-400 font-medium">Безопасный чат 1337</span>
-              </div>
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="submit"
-                  disabled={submitting || !responseMessage.trim()}
-                  className="flex-1 btn-primary py-3 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-violet disabled:opacity-50"
-                >
+              <div className="flex gap-2">
+                <button type="submit" disabled={submitting || message.trim().length < 10} className="flex-1 btn-primary py-3 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-violet disabled:opacity-50">
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  <span>Отправить отклик заказчику</span>
+                  <span>Отправить отклик</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowResponseForm(false)}
-                  className="px-4 py-3 rounded-2xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors"
-                >
+                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-3 rounded-2xl border border-slate-200 bg-white text-slate-600 text-xs font-bold">
                   Отмена
                 </button>
               </div>
             </motion.form>
-          ) : null}
+          )}
         </AnimatePresence>
 
-        {/* СПИСОК ОТКЛИКОВ */}
-        <div className="space-y-3">
-          {responses.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-100 text-violet-500 flex items-center justify-center mx-auto mb-2.5">
-                <Users className="w-6 h-6" />
-              </div>
-              <p className="text-xs font-bold text-slate-800">Пока нет откликов</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {isClientRole
-                  ? "Специалисты увидят ваше задание в ленте и начнут отправлять предложения"
-                  : "Будьте первым исполнителем, отправившим предложение!"}
-              </p>
-            </div>
-          ) : (
-            responses.map((resp, index) => {
-              const execDisplayName = resp.executor?.first_name || "Исполнитель";
-
+        {responses.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-xs font-bold text-slate-800">{isOwner ? "Пока нет откликов" : "Вы ещё не откликались"}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {isOwner ? "Исполнители увидят заказ в ленте и пришлют предложения" : role === "executor" ? "Нажмите «Откликнуться», чтобы отправить предложение" : "Откликаться на заказы могут исполнители"}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {responses.map((r) => {
+              const rs = RESP_STATUS[r.status] || RESP_STATUS.pending;
               return (
-                <motion.div
-                  key={resp.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.04 }}
-                  className={cn(
-                    "p-4 rounded-3xl border space-y-3 transition-all",
-                    resp.status === "accepted"
-                      ? "bg-emerald-50/40 border-emerald-200"
-                      : "bg-slate-50/80 border-slate-200/80 hover:border-purple-200"
-                  )}
-                >
+                <div key={r.id} className={cn("p-4 rounded-3xl border space-y-3", r.status === "accepted" ? "bg-emerald-50/40 border-emerald-200" : "bg-slate-50/80 border-slate-200/80")}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-10 h-10 rounded-2xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-extrabold text-sm shrink-0">
-                        {execDisplayName[0] || "И"}
-                      </div>
+                      <div className="w-10 h-10 rounded-2xl bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-extrabold text-sm shrink-0">{r.executor.first_name[0] || "И"}</div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-extrabold text-slate-900 truncate">{execDisplayName}</span>
-                          {resp.executor?.rating ? (
-                            <span className="flex items-center gap-0.5 text-[11px] shrink-0 bg-amber-50 px-1.5 py-0.2 rounded-md border border-amber-200">
-                              <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                              <span className="font-bold text-slate-900">{resp.executor.rating}</span>
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="text-[11px] text-violet-600 font-medium truncate">
-                          Специалист 1337
+                        <div className="text-sm font-extrabold truncate">{isOwner ? r.executor.first_name : "Вы"}</div>
+                        <p className="text-[11px] text-slate-400 font-medium">
+                          {new Date(r.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          {r.days ? ` · ${r.days} дн.` : ""}
                         </p>
                       </div>
                     </div>
-
                     <div className="text-right shrink-0">
-                      <div className="text-sm font-extrabold text-violet-700">{resp.budget?.toLocaleString()} ₽</div>
-                      <span
-                        className={cn(
-                          "text-[9.5px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider inline-block mt-0.5",
-                          resp.status === "accepted"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : resp.status === "rejected"
-                            ? "bg-red-50 text-red-700 border-red-200"
-                            : "bg-amber-50 text-amber-700 border-amber-200"
-                        )}
-                      >
-                        {resp.status === "accepted" ? "Принят" : resp.status === "rejected" ? "Отклонен" : "Ожидает"}
-                      </span>
+                      {r.budget ? <div className="text-sm font-extrabold text-violet-700">{r.budget.toLocaleString("ru-RU")} ₽</div> : null}
+                      <span className={cn("text-[9.5px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider inline-block mt-0.5", rs.cls)}>{rs.text}</span>
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-700 leading-relaxed font-medium bg-white p-3 rounded-2xl border border-slate-100">
-                    {resp.message}
-                  </p>
+                  <p className="text-xs text-slate-700 leading-relaxed font-medium bg-white p-3 rounded-2xl border border-slate-100 whitespace-pre-wrap">{r.message}</p>
 
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 flex-wrap gap-2">
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      {new Date(resp.created_at).toLocaleDateString("ru-RU", {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-
-                    <div className="flex items-center gap-1.5">
-                      {/* Кнопка написать исполнителю в ЧАТ (доступна заказчику) */}
-                      {isClientRole && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            router.push(
-                              `/chats?name=${encodeURIComponent(execDisplayName)}&orderTitle=${encodeURIComponent(
-                                order.title
-                              )}`
-                            )
-                          }
-                          className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-violet"
-                        >
+                  <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                    {isOwner && (
+                      <>
+                        <button onClick={() => openChat(r.executor_id)} className="btn-primary py-1.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-violet">
                           <MessageSquare className="w-3 h-3" />
                           <span>В чат</span>
                         </button>
-                      )}
-
-                      {/* Кнопки Принять/Отклонить: доступны ТОЛЬКО заказчику */}
-                      {isClientRole && resp.status === "pending" && (
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateResponseStatus(resp.id, "accepted")}
-                            className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors"
-                            title="Принять отклик"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateResponseStatus(resp.id, "rejected")}
-                            className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition-colors"
-                            title="Отклонить отклик"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                        {r.status === "pending" && order.status !== "completed" && order.status !== "cancelled" && (
+                          <>
+                            <button onClick={() => decide(r.id, "accepted")} title="Принять" className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200">
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => decide(r.id, "rejected")} title="Отклонить" className="p-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200">
+                              <XCircle className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
+                    {!isOwner && r.status !== "accepted" && (
+                      <button onClick={() => withdraw(r.id)} className="py-1.5 px-3 rounded-xl border border-slate-200 text-[11px] font-bold text-slate-600 hover:bg-white flex items-center gap-1">
+                        <Trash2 className="w-3 h-3" />
+                        <span>Отозвать</span>
+                      </button>
+                    )}
                   </div>
-                </motion.div>
+                </div>
               );
-            })
-          )}
-        </div>
-      </motion.div>
-
-      {/* ФИКСИРОВАННАЯ НИЖНЯЯ ПАНЕЛЬ: ЧЕТКО РАЗДЕЛЕНА ПО РОЛЯМ */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur-md border-t border-slate-200 z-30 flex items-center justify-between gap-3 max-w-md mx-auto">
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Бюджет задачи</div>
-          <div className="text-sm font-extrabold text-violet-700 truncate">
-            {order.budget_min?.toLocaleString()} – {order.budget_max?.toLocaleString()} ₽
-          </div>
-        </div>
-
-        {isClientRole ? (
-          /* ДЛЯ ЗАКАЗЧИКА: Показываем статус откликов и кнопку поделиться */
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-violet-700 bg-purple-50 px-3 py-2 rounded-2xl border border-purple-200">
-              Откликов: {responses.length}
-            </span>
-            <button
-              onClick={handleShare}
-              className="px-3.5 py-2.5 rounded-2xl bg-violet-600 text-white hover:bg-violet-700 text-xs font-extrabold flex items-center gap-1.5 transition-colors shadow-violet"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>Поделиться</span>
-            </button>
-          </div>
-        ) : (
-          /* ДЛЯ ИСПОЛНИТЕЛЯ: Кнопки «В чат» и «Откликнуться» */
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  `/chats?name=${encodeURIComponent(clientDisplayName)}&orderTitle=${encodeURIComponent(
-                    order.title
-                  )}`
-                )
-              }
-              className="px-3.5 py-2.5 rounded-2xl bg-purple-50 text-violet-700 border border-purple-200 hover:bg-purple-100 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>В чат</span>
-            </button>
-
-            {!myResponse && order.status === "active" ? (
-              <button
-                onClick={() => {
-                  setShowResponseForm(true);
-                  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-                }}
-                className="btn-primary py-2.5 px-4 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 shadow-violet"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Откликнуться</span>
-              </button>
-            ) : myResponse ? (
-              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-2xl border border-emerald-200 flex items-center gap-1">
-                <Check className="w-3.5 h-3.5" />
-                <span>Отклик отправлен</span>
-              </span>
-            ) : null}
+            })}
           </div>
         )}
       </div>
+
+      {canRespond && !showForm && (
+        <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur-md border-t border-slate-200 z-30 flex items-center justify-between gap-3 max-w-md mx-auto">
+          <div className="min-w-0">
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Бюджет</div>
+            <div className="text-sm font-extrabold text-violet-700 truncate">{budgetText(order.budget_min, order.budget_max)}</div>
+          </div>
+          <button onClick={() => setShowForm(true)} className="btn-primary py-2.5 px-5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 shadow-violet">
+            <Plus className="w-4 h-4" />
+            <span>Откликнуться</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

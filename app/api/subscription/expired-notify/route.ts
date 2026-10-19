@@ -1,43 +1,33 @@
 // app/api/subscription/expired-notify/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { telegram } from "@/lib/telegram/bot-api";
+import { escapeHtml, getCurrentUser, unauthorized, userHasAccess } from "@/lib/auth";
+import { SUPPORT_URL } from "@/lib/constants";
 
-export async function POST(req: NextRequest) {
-  try {
-    const { telegramId, userName } = await req.json();
+export async function POST() {
+  // Раньше любой мог передать произвольный telegramId и слать сообщения от имени бота.
+  // Теперь адресат — только текущий авторизованный пользователь, и только если доступ реально закончился.
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
+  if (userHasAccess(me)) return NextResponse.json({ ok: true, skipped: true });
 
-    if (!telegramId) {
-      return NextResponse.json({ ok: false, error: "telegramId required" }, { status: 400 });
-    }
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+  const text =
+    `⌛️ <b>Здравствуйте, ${escapeHtml(me.first_name || "пользователь")}!</b>\n\n` +
+    `Пробный период на бирже <b>1337</b> завершился.\n` +
+    `Чтобы продолжить откликаться на заказы и общаться в чатах, оформите подписку <b>Pro</b>.`;
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
-
-    const message =
-      `⌛️ <b>Здравствуйте, ${userName || "пользователь"}!</b>\n\n` +
-      `Срок действия вашего 5-дневного пробного периода на бирже <b>1337</b> завершился.\n\n` +
-      `Чтобы продолжить откликаться на заказы, вести диалоги с заказчиками и заключать безопасные сделки, продлите доступ к тарифу <b>PRO</b>.\n\n` +
-      `💳 Стоимость подписки: <b>990 ₽ / месяц</b>\n` +
-      `💎 0% комиссии биржи, неограниченные отклики и приоритет в ленте.`;
-
-    const keyboard = {
+  await telegram.sendMessage(me.telegram_id, text, {
+    reply_markup: {
       inline_keyboard: [
         [
-          {
-            text: "💳 Продлить подписку PRO",
-            web_app: siteUrl && siteUrl.startsWith("https://") ? { url: `${siteUrl}/subscribe` } : undefined,
-            url: !siteUrl || !siteUrl.startsWith("https://") ? "https://t.me/F1337H" : undefined,
-          },
+          siteUrl.startsWith("https://")
+            ? { text: "💳 Оформить подписку Pro", web_app: { url: `${siteUrl}/subscribe` } }
+            : { text: "💬 Поддержка", url: SUPPORT_URL },
         ],
       ],
-    };
+    },
+  });
 
-    const res = await telegram.sendMessage(telegramId, message, {
-      reply_markup: keyboard,
-    });
-
-    return NextResponse.json({ ok: true, result: res });
-  } catch (error) {
-    console.error("Expired notification error:", error);
-    return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
-  }
+  return NextResponse.json({ ok: true });
 }

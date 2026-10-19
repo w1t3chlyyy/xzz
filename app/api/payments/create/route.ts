@@ -1,128 +1,71 @@
 // app/api/payments/create/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCryptoBotClient } from "@/lib/crypto-bot/client";
 import { telegram } from "@/lib/telegram/bot-api";
-
-const PRICES: Record<string, { rub: number; stars: number; usdt: number }> = {
-  pro: { rub: 990, stars: 500, usdt: 11 },
-};
+import { getCurrentUser, unauthorized } from "@/lib/auth";
+import { getPricing } from "@/lib/pricing";
 
 export async function POST(request: NextRequest) {
   try {
-    const { tier, method, durationDays = 30 } = await request.json();
+    const me = await getCurrentUser();
+    if (!me) return unauthorized();
 
-    if (!tier || !PRICES[tier]) {
-      return NextResponse.json({ error: "Invalid subscription tier" }, { status: 400 });
-    }
+    const { method, durationDays } = await request.json().catch(() => ({}));
+    const days = Number(durationDays) === 365 ? 365 : 30;
     if (!["crypto", "stars", "bank"].includes(method)) {
-      return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
+      return NextResponse.json({ error: "Неверный способ оплаты" }, { status: 400 });
     }
-
-    // Реальный авторизованный пользователь — без этого раньше подписка вообще
-    // не была привязана ни к какой проверке.
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
+    if (!me.telegram_id) return NextResponse.json({ error: "Telegram аккаунт не привязан" }, { status: 400 });
 
     const admin = createAdminClient();
-    const { data: profile, error: profileError } = await admin
-      .from("users")
-      .select("telegram_id")
-      .eq("id", user.id)
-      .single();
-
-    if (!profile?.telegram_id) {
-      // ВРЕМЕННАЯ ДИАГНОСТИКА: возвращаем реальный auth user.id и содержимое
-      // profileError, чтобы понять, какая именно сессия сейчас авторизована
-      // и почему у неё нет telegram_id. Уберите debug-поля после того,
-      // как разберётесь с причиной — не стоит светить internal id в проде.
-      return NextResponse.json(
-        {
-          error: "Telegram аккаунт не привязан",
-          debug: {
-            authUserId: user.id,
-            authEmail: user.email,
-            profileFound: !!profile,
-            profileError: profileError?.message || null,
-          },
-        },
-        { status: 400 }
-      );
-    }
-
-    const price = PRICES[tier];
+    // Раньше цена была захардкожена и за «год» списывалась цена месяца. Теперь цена зависит от срока
+    // и берётся из settings.pro_price (команда /setprices).
+    const { data: settings } = await admin.from("settings").select("pro_price").eq("id", 1).maybeSingle();
+    const price = getPricing(settings?.pro_price || 990)[days];
+    const tier = "pro";
+    const base = { user_id: me.id, telegram_id: me.telegram_id, tier, status: "pending", duration_days: days };
 
     if (method === "crypto") {
       if (!process.env.CRYPTOBOT_API_TOKEN) {
         return NextResponse.json({ error: "Оплата криптовалютой временно недоступна" }, { status: 503 });
       }
-      const client = getCryptoBotClient();
-      const invoice = await client.createInvoice({
+      const invoice = await getCryptoBotClient().createInvoice({
         amount: price.usdt.toString(),
         asset: "USDT",
-        description: `Подписка 1337 ${tier.toUpperCase()} на ${durationDays} дней`,
-        allow_comments: true,
+        description: `Подписка 1337 Pro на ${days} дней`,
+        allow_comments: false,
         allow_anonymous: false,
         expires_in: 3600,
       });
 
       const { data: payment, error } = await admin
         .from("payments")
-        .insert({
-          user_id: user.id,
-          telegram_id: profile.telegram_id,
-          invoice_id: Number(invoice.invoice_id),
-          amount: price.usdt,
-          currency: "USDT",
-          tier,
-          method: "crypto",
-          status: "pending",
-          duration_days: durationDays,
-        })
+        .insert({ ...base, invoice_id: Number(invoice.invoice_id), amount: price.usdt, currency: "USDT", method: "crypto" })
         .select("id")
         .single();
-
       if (error) throw error;
 
-      // Подписка НЕ выдаётся здесь. Она появится только когда CryptoBot
-      // пришлёт invoice_paid на /api/payments/webhook.
+      // Подписка выдаётся только вебхуком invoice_paid
       return NextResponse.json({ success: true, paymentId: payment.id, payUrl: invoice.pay_url });
     }
 
     if (method === "stars") {
       const { data: payment, error } = await admin
         .from("payments")
-        .insert({
-          user_id: user.id,
-          telegram_id: profile.telegram_id,
-          invoice_id: Date.now(),
-          amount: price.stars,
-          currency: "XTR",
-          tier,
-          method: "stars",
-          status: "pending",
-          duration_days: durationDays,
-        })
+        .insert({ ...base, invoice_id: Date.now(), amount: price.stars, currency: "XTR", method: "stars" })
         .select("id")
         .single();
-
       if (error) throw error;
 
-      await telegram.sendInvoice(profile.telegram_id, {
-        title: `Подписка 1337 — ${tier === "ai_pro" ? "AI Pro" : "Pro"}`,
-        description: `Доступ на ${durationDays} дней`,
+      await telegram.sendInvoice(me.telegram_id, {
+        title: "Подписка 1337 — Pro",
+        description: `Доступ на ${days} дней`,
         payload: JSON.stringify({ paymentId: payment.id }),
         currency: "XTR",
-        prices: [{ label: tier === "ai_pro" ? "AI Pro" : "Pro", amount: price.stars }],
+        prices: [{ label: "Pro", amount: price.stars }],
       });
 
-      // Подписка выдастся, когда бот получит апдейт successful_payment.
       return NextResponse.json({
         success: true,
         paymentId: payment.id,
@@ -130,25 +73,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // method === "bank" — оплата по реквизитам, подтверждается админом вручную
-    const { data: requisites } = await admin.from("payment_requisites").select("details").eq("id", 1).single();
-
+    // bank — перевод по реквизитам, подтверждает админ
+    const { data: requisites } = await admin.from("payment_requisites").select("details").eq("id", 1).maybeSingle();
     const { data: payment, error } = await admin
       .from("payments")
-      .insert({
-        user_id: user.id,
-        telegram_id: profile.telegram_id,
-        invoice_id: Date.now(),
-        amount: price.rub,
-        currency: "RUB",
-        tier,
-        method: "bank",
-        status: "pending",
-        duration_days: durationDays,
-      })
+      .insert({ ...base, invoice_id: Date.now(), amount: price.rub, currency: "RUB", method: "bank" })
       .select("id")
       .single();
-
     if (error) throw error;
 
     return NextResponse.json({
@@ -156,11 +87,9 @@ export async function POST(request: NextRequest) {
       paymentId: payment.id,
       amount: price.rub,
       requisites: requisites?.details || "Реквизиты не заданы, свяжитесь с администратором.",
-      instructions:
-        "Переведите указанную сумму по реквизитам и отправьте скриншот чека в чат с ботом 1337 в Telegram — администратор подтвердит оплату вручную.",
     });
   } catch (error) {
     console.error("Payment create error:", error);
-    return NextResponse.json({ error: "Failed to process payment request" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось создать платёж" }, { status: 500 });
   }
 }

@@ -1,55 +1,44 @@
 // app/api/payments/promo/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { cleanStr, getCurrentUser, unauthorized } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
-  const { code } = await request.json();
-  if (!code || typeof code !== "string") {
-    return NextResponse.json({ error: "Код не указан" }, { status: 400 });
-  }
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  const { code } = await request.json().catch(() => ({}));
+  const normalized = cleanStr(code, 32).toUpperCase();
+  if (!normalized) return NextResponse.json({ error: "Код не указан" }, { status: 400 });
 
   const admin = createAdminClient();
-  const normalized = code.trim().toUpperCase();
-
-  const { data: promo } = await admin
-    .from("promo_codes")
-    .select("*")
-    .eq("code", normalized)
-    .eq("active", true)
-    .maybeSingle();
-
-  if (!promo) {
-    return NextResponse.json({ error: "Промокод не найден или больше не активен" }, { status: 404 });
-  }
+  const { data: promo } = await admin.from("promo_codes").select("*").eq("code", normalized).eq("active", true).maybeSingle();
+  if (!promo) return NextResponse.json({ error: "Промокод не найден или больше не активен" }, { status: 404 });
   if (promo.max_uses !== null && promo.used_count >= promo.max_uses) {
     return NextResponse.json({ error: "Лимит использований промокода исчерпан" }, { status: 400 });
   }
 
-  const { data: userRow } = await admin
-    .from("users")
-    .select("subscription_tier, subscription_expires_at")
-    .eq("id", user.id)
-    .single();
+  // 1) один пользователь — один раз (PK code+user_id)
+  const { error: redeemError } = await admin.from("promo_redemptions").insert({ code: normalized, user_id: me.id });
+  if (redeemError) return NextResponse.json({ error: "Вы уже использовали этот промокод" }, { status: 400 });
+
+  // 2) атомарно занимаем использование: апдейт сработает, только если счётчик не изменился
+  const { data: bumped } = await admin
+    .from("promo_codes")
+    .update({ used_count: promo.used_count + 1 })
+    .eq("code", normalized)
+    .eq("used_count", promo.used_count)
+    .select("code");
+  if (!bumped || bumped.length === 0) {
+    await admin.from("promo_redemptions").delete().eq("code", normalized).eq("user_id", me.id);
+    return NextResponse.json({ error: "Не удалось применить, попробуйте ещё раз" }, { status: 409 });
+  }
 
   const now = Date.now();
-  const currentExpiry = userRow?.subscription_expires_at ? new Date(userRow.subscription_expires_at).getTime() : 0;
-  const sameTierStillActive = currentExpiry > now && userRow?.subscription_tier === promo.tier;
-  const base = sameTierStillActive ? currentExpiry : now;
+  const current = me.subscription_expires_at ? new Date(me.subscription_expires_at).getTime() : 0;
+  const base = current > now && me.subscription_tier === promo.tier ? current : now;
   const newExpiry = new Date(base + promo.duration_days * 86400000).toISOString();
 
-  await admin
-    .from("users")
-    .update({ subscription_tier: promo.tier, subscription_expires_at: newExpiry })
-    .eq("id", user.id);
-
-  await admin.from("promo_codes").update({ used_count: promo.used_count + 1 }).eq("code", normalized);
-
+  await admin.from("users").update({ subscription_tier: promo.tier, subscription_expires_at: newExpiry }).eq("id", me.id);
   return NextResponse.json({ success: true, tier: promo.tier, expiresAt: newExpiry });
 }

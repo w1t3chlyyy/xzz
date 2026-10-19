@@ -2,50 +2,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyExecutorResponseStatus } from "@/lib/telegram/notifications";
+import { forbidden, getCurrentUser, unauthorized, UUID_RE } from "@/lib/auth";
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
-  try {
-    const resolvedParams = await Promise.resolve(params);
-    const responseId = resolvedParams.id;
-    const body = await req.json();
-    const { status } = body;
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> | { id: string } }) {
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
 
-    if (!responseId || !["accepted", "rejected", "pending"].includes(status)) {
-      return NextResponse.json({ error: "Invalid status or response id" }, { status: 400 });
-    }
-
-    const supabase = createAdminClient();
-
-    // 🔔 Обновляем статус и отправляем уведомление ИСПОЛНИТЕЛЮ в Telegram-бота!
-    const result = await notifyExecutorResponseStatus(supabase, {
-      responseId,
-      status: status as "accepted" | "rejected",
-    });
-
-    if (!result.ok) {
-      // Даже если уведомление упало, проверяем прямое обновление в базе
-      await supabase.from("responses").update({ status }).eq("id", responseId);
-      if (status === "accepted") {
-        const { data: resp } = await supabase
-          .from("responses")
-          .select("order_id")
-          .eq("id", responseId)
-          .maybeSingle();
-        if (resp?.order_id) {
-          await supabase
-            .from("orders")
-            .update({ status: "in_progress", updated_at: new Date().toISOString() })
-            .eq("id", resp.order_id);
-        }
-      }
-    }
-
-    return NextResponse.json({ success: true, status });
-  } catch (err: any) {
-    console.error("POST /api/responses/[id]/status error:", err);
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
+  const { id } = await Promise.resolve(ctx.params);
+  const { status } = await req.json().catch(() => ({}));
+  if (!UUID_RE.test(id) || !["accepted", "rejected"].includes(status)) {
+    return NextResponse.json({ error: "Неверный статус" }, { status: 400 });
   }
+
+  const admin = createAdminClient();
+  const { data: resp } = await admin.from("responses").select("id, status, order_id").eq("id", id).maybeSingle();
+  if (!resp) return NextResponse.json({ error: "Отклик не найден" }, { status: 404 });
+
+  const { data: order } = await admin.from("orders").select("client_id").eq("id", resp.order_id).maybeSingle();
+  if (!order || order.client_id !== me.id) return forbidden("Решать по отклику может только заказчик");
+  if (resp.status !== "pending") return NextResponse.json({ error: "Решение уже принято" }, { status: 409 });
+
+  const result = await notifyExecutorResponseStatus(admin, { responseId: id, status });
+  if (!result.ok) return NextResponse.json({ error: "Не удалось обновить отклик" }, { status: 500 });
+
+  return NextResponse.json({ success: true, status });
 }

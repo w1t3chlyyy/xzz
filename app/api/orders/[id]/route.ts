@@ -1,75 +1,47 @@
 // app/api/orders/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { forbidden, getCurrentUser, isAdminUser, unauthorized, UUID_RE } from "@/lib/auth";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
-  try {
-    const resolvedParams = await Promise.resolve(params);
-    const orderId = resolvedParams.id;
+export const dynamic = "force-dynamic";
 
-    if (!orderId) {
-      return NextResponse.json({ error: "Missing order id" }, { status: 400 });
-    }
+type Ctx = { params: Promise<{ id: string }> | { id: string } };
 
-    const supabase = createAdminClient();
+async function getId(ctx: Ctx): Promise<string> {
+  return (await Promise.resolve(ctx.params)).id;
+}
 
-    // 1. Получаем заказ с данными заказчика
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .select(
-        `
-        id, title, description, category, budget_min, budget_max, status, created_at, updated_at, client_id,
-        client:client_id (
-          id,
-          first_name,
-          username,
-          avatar_url,
-          telegram_id,
-          subscription_tier
-        )
-      `
-      )
-      .eq("id", orderId)
-      .maybeSingle();
+export async function GET(_req: NextRequest, ctx: Ctx) {
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
+  const id = await getId(ctx);
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
 
-    if (orderError) {
-      console.error("GET /api/orders/[id] orderError:", orderError);
-      return NextResponse.json({ error: orderError.message }, { status: 500 });
-    }
+  const admin = createAdminClient();
+  const { data: order } = await admin
+    .from("orders")
+    .select("id, title, description, category, budget_min, budget_max, status, created_at, client_id, client:client_id(id, first_name, avatar_url)")
+    .eq("id", id)
+    .maybeSingle();
 
-    if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    }
+  if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
 
-    // 2. Получаем отклики к этому заказу
-    const { data: responses, error: responsesError } = await supabase
-      .from("responses")
-      .select(
-        `
-        id, order_id, executor_id, message, budget, status, created_at,
-        executor:executor_id (
-          id,
-          first_name,
-          username,
-          avatar_url,
-          telegram_id,
-          subscription_tier
-        )
-      `
-      )
-      .eq("order_id", orderId)
-      .order("created_at", { ascending: false });
+  const isOwner = order.client_id === me.id;
 
-    if (responsesError) {
-      console.warn("GET /api/orders/[id] responsesError:", responsesError);
-    }
+  // Заказчик видит все отклики, исполнитель — только свой (чужие предложения и цены скрыты).
+  let rq = admin
+    .from("responses")
+    .select("id, order_id, executor_id, message, budget, days, status, created_at, executor:executor_id(id, first_name, avatar_url)")
+    .eq("order_id", id)
+    .order("created_at", { ascending: false });
+  if (!isOwner) rq = rq.eq("executor_id", me.id);
+  const { data: responses } = await rq;
 
-    const clientData = Array.isArray(order.client) ? order.client[0] : order.client;
+  const client: any = Array.isArray(order.client) ? order.client[0] : order.client;
 
-    const formattedOrder = {
+  return NextResponse.json({
+    isOwner,
+    order: {
       id: order.id,
       title: order.title,
       description: order.description,
@@ -78,65 +50,57 @@ export async function GET(
       budget_max: order.budget_max,
       status: order.status,
       created_at: order.created_at,
-      updated_at: order.updated_at,
       client_id: order.client_id,
-      client: {
-        id: clientData?.id,
-        first_name: clientData?.first_name || "Заказчик",
-        username: clientData?.username ? clientData.username.replace(/^@/, "") : "",
-        avatar_url: clientData?.avatar_url || null,
-        telegram_id: clientData?.telegram_id || null,
-        rating: 5.0,
-      },
-    };
-
-    const formattedResponses = (responses || []).map((r: any) => {
-      const execData = Array.isArray(r.executor) ? r.executor[0] : r.executor;
+      client: { id: client?.id, first_name: client?.first_name || "Заказчик", avatar_url: client?.avatar_url || null },
+    },
+    responses: (responses || []).map((r: any) => {
+      const ex = Array.isArray(r.executor) ? r.executor[0] : r.executor;
       return {
         id: r.id,
         order_id: r.order_id,
         executor_id: r.executor_id,
         message: r.message,
         budget: r.budget,
+        days: r.days,
         status: r.status,
         created_at: r.created_at,
-        executor: {
-          id: execData?.id,
-          first_name: execData?.first_name || "Исполнитель",
-          username: execData?.username ? execData.username.replace(/^@/, "") : "",
-          avatar_url: execData?.avatar_url || null,
-          telegram_id: execData?.telegram_id || null,
-          rating: 5.0,
-        },
+        executor: { id: ex?.id, first_name: ex?.first_name || "Исполнитель", avatar_url: ex?.avatar_url || null },
       };
-    });
-
-    return NextResponse.json({
-      order: formattedOrder,
-      responses: formattedResponses,
-    });
-  } catch (err: any) {
-    console.error("GET /api/orders/[id] error:", err);
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
-  }
+    }),
+  });
 }
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
-  try {
-    const resolvedParams = await Promise.resolve(params);
-    const orderId = resolvedParams.id;
-    const supabase = createAdminClient();
+export async function PATCH(req: NextRequest, ctx: Ctx) {
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
+  const id = await getId(ctx);
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
 
-    const { error } = await supabase.from("orders").delete().eq("id", orderId);
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+  const { status } = await req.json().catch(() => ({}));
+  if (!["completed", "cancelled"].includes(status)) return NextResponse.json({ error: "Неверный статус" }, { status: 400 });
 
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
-  }
+  const admin = createAdminClient();
+  const { data: order } = await admin.from("orders").select("id, client_id, status").eq("id", id).maybeSingle();
+  if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+  if (order.client_id !== me.id && !isAdminUser(me)) return forbidden();
+  if (!["active", "in_progress"].includes(order.status)) return NextResponse.json({ error: "Заказ уже закрыт" }, { status: 409 });
+
+  await admin.from("orders").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+  return NextResponse.json({ success: true, status });
+}
+
+export async function DELETE(_req: NextRequest, ctx: Ctx) {
+  const me = await getCurrentUser();
+  if (!me) return unauthorized();
+  const id = await getId(ctx);
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+
+  const admin = createAdminClient();
+  const { data: order } = await admin.from("orders").select("client_id").eq("id", id).maybeSingle();
+  if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+  if (order.client_id !== me.id && !isAdminUser(me)) return forbidden();
+
+  const { error } = await admin.from("orders").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: "Не удалось удалить" }, { status: 500 });
+  return NextResponse.json({ success: true });
 }
