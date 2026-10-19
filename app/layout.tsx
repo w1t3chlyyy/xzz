@@ -9,9 +9,40 @@ const unbounded = Unbounded({ subsets: ["latin", "cyrillic"], weight: ["300", "5
 const montserrat = Montserrat({ subsets: ["latin", "cyrillic"], weight: ["400", "500", "600", "700", "800"], variable: "--font-montserrat", display: "swap" });
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], weight: ["500"], variable: "--font-mono", display: "swap" });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://1337-app.vercel.app";
+const TITLE = "1337 — Фриланс биржа";
+const DESCRIPTION =
+  "Биржа фриланса 1337: публикуйте заказы, находите исполнителей, получайте отклики с ценой и сроком и фиксируйте сделку в чате. На сайте и в Telegram.";
+
 export const metadata: Metadata = {
-  title: "1337 — Фриланс биржа",
-  description: "Заказы, исполнители, чаты и безопасные сделки на бирже 1337",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: TITLE,
+    template: "%s · 1337",
+  },
+  description: DESCRIPTION,
+  applicationName: "1337",
+  manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/logo.png", type: "image/png" }],
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    type: "website",
+    siteName: "1337",
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/",
+    locale: "ru_RU",
+    images: [{ url: "/logo.png", alt: "1337" }],
+  },
+  twitter: {
+    card: "summary",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/logo.png"],
+  },
 };
 
 export const viewport: Viewport = {
