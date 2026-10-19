@@ -140,7 +140,7 @@ export function Hero() {
           muted
           playsInline
           preload="auto"
-          className="w-full h-full object-cover object-[70%_50%] lg:object-right-top max-lg:scale-[1.01]"
+          className="w-full h-full object-cover object-[80%_50%] lg:object-right-top max-lg:scale-[1.01]"
         />
       </div>
 
