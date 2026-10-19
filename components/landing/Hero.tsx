@@ -101,9 +101,9 @@ export function Hero() {
 
   return (
     <section className="relative bg-white text-neutral-900 selection:bg-violet-100 selection:text-black antialiased overflow-hidden min-h-[100svh] flex flex-col">
-      <header className="fixed top-4 inset-x-0 z-30 px-4">
-        <div className="relative max-w-5xl mx-auto">
-          <div className="flex items-center justify-between rounded-full border border-black/5 bg-white/80 backdrop-blur-md shadow-sm pl-6 pr-2 py-2">
+      <header className="fixed top-4 inset-x-0 z-30 px-4 lg:px-8">
+        <div className="relative max-w-5xl lg:max-w-none mx-auto">
+          <div className="flex items-center justify-between rounded-full border border-black/5 bg-white/80 backdrop-blur-md shadow-sm pl-6 pr-2 py-2 lg:border-0 lg:bg-transparent lg:backdrop-blur-none lg:shadow-none lg:p-0">
             <Link href="/" className="font-heading text-xl tracking-tight">1337</Link>
             <nav className="hidden md:flex items-center gap-9 text-sm font-semibold text-neutral-700">
               {NAV.map(([label, href]) => (
@@ -133,14 +133,14 @@ export function Hero() {
       </header>
 
       {/* Видео на весь блок. ПК: модель справа внизу. Моб.: растянуто на весь блок, модель по центру */}
-      <div className="absolute inset-0 lg:top-24 lg:left-auto lg:w-[92%] z-0 overflow-hidden pointer-events-none lg:[mask-image:linear-gradient(to_right,transparent,black_14%)]">
+      <div className="absolute inset-0 lg:top-0 lg:left-auto lg:w-[92%] z-0 overflow-hidden pointer-events-none lg:[mask-image:linear-gradient(to_right,transparent,black_14%)]">
         <video
           ref={videoRef}
           src={VIDEO}
           muted
           playsInline
           preload="auto"
-          className="w-full h-full object-cover object-center lg:object-right-top max-lg:scale-[1.3] max-lg:-translate-x-[12%]"
+          className="w-full h-full object-cover object-[56%_50%] lg:object-right-top max-lg:scale-[1.15]"
         />
       </div>
 
