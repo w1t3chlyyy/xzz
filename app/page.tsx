@@ -9,6 +9,9 @@ const BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "F1337Bot";
 const CHANNEL = process.env.TELEGRAM_CHANNEL_URL || "https://t.me/F1337C";
 const SUPPORT = process.env.NEXT_PUBLIC_SUPPORT_URL || "https://t.me/F1337H";
 
+// Лендинг только для сайта: внутри Telegram Mini App сразу уводим в приложение.
+const TG_REDIRECT = `(function(){try{var h=location.hash||"";var tg=window.Telegram&&window.Telegram.WebApp;if((tg&&tg.initData)||h.indexOf("tgWebAppData")>-1){location.replace("/feed"+h)}}catch(e){}})();`;
+
 const facts: [string, string, string][] = [
   ["5", "дней", "бесплатного доступа"],
   ["4", "направления", "работ на бирже"],
@@ -46,6 +49,7 @@ const faq: [string, string][] = [
 export default function Landing() {
   return (
     <div className="bg-white text-slate-900">
+      <script dangerouslySetInnerHTML={{ __html: TG_REDIRECT }} />
       <Effects />
       <Hero />
 

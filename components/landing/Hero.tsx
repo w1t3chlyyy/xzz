@@ -132,8 +132,8 @@ export function Hero() {
         </div>
       </header>
 
-      {/* Видео на весь блок. ПК: модель справа внизу. Моб.: растянуто на весь блок, модель по центру */}
-      <div className="absolute inset-0 lg:top-0 lg:left-auto lg:w-[92%] z-0 overflow-hidden pointer-events-none lg:[mask-image:linear-gradient(to_right,transparent,black_14%)]">
+      {/* Видео на весь блок. ПК: модель справа внизу. Моб.: растянуто на весь блок, модель по центру, опущено вниз */}
+      <div className="absolute inset-0 max-lg:translate-y-10 lg:top-0 lg:left-auto lg:w-[92%] z-0 overflow-hidden pointer-events-none lg:[mask-image:linear-gradient(to_right,transparent,black_14%)]">
         <video
           ref={videoRef}
           src={VIDEO}
@@ -148,7 +148,7 @@ export function Hero() {
       <div className="absolute inset-x-0 bottom-0 h-[55%] lg:h-[45%] z-[5] pointer-events-none bg-gradient-to-t from-white from-25% via-white/80 via-55% to-transparent" />
 
       {/* Весь текст и кнопки — внизу, поверх градиента */}
-      <div className="relative z-10 flex-1 flex flex-col justify-end w-full max-w-7xl mx-auto px-6 pt-32 pb-5 lg:pb-14">
+      <div className="relative z-10 flex-1 flex flex-col justify-end w-full max-w-7xl mx-auto px-6 pt-32 pb-2 lg:pb-14">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
           <h1 className="text-4xl md:text-5xl lg:text-6xl text-black leading-[1.18] mb-6 select-none w-full whitespace-pre-wrap min-h-[2.4em]">
             {displayed}

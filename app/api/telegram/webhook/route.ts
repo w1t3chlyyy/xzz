@@ -7,6 +7,7 @@ import { notifyExecutorResponseStatus } from "@/lib/telegram/notifications";
 import { startOnboarding, handleOnboardingCallback } from "@/lib/telegram/onboarding";
 import { resolveWithdrawal } from "@/lib/withdrawals";
 import { confirmPayment, rejectPayment } from "@/lib/payments";
+import { signSiteToken } from "@/lib/siteToken";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -126,7 +127,7 @@ async function handleMessage(msg: any, supabase: AdminClient) {
   if (!text) return;
 
   if (/^\/start\b/.test(text)) {
-    await sendWelcome(chatId, supabase);
+    await sendWelcome(chatId, supabase, userId);
     if (msg.from) await startOnboarding(chatId, msg.from, supabase);
     return;
   }
@@ -337,22 +338,25 @@ async function handleSetWelcomePhoto(msg: any, supabase: AdminClient) {
   await telegram.sendMessage(chatId, "✅ Приветствие обновлено (текст + фото).");
 }
 
-async function sendWelcome(chatId: number | string, supabase: AdminClient) {
+async function sendWelcome(chatId: number | string, supabase: AdminClient, tgId?: number) {
   const { data: settings } = await supabase.from("settings").select("welcome_message, welcome_photo_file_id").single();
 
   const welcomeText =
     settings?.welcome_message ||
     `👋 Добро пожаловать в <b>1337</b>!\n\n🎯 Фриланс биржа прямо в Telegram\n💼 Находите заказы и исполнителей`;
 
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: "Открыть биржу", url: MINI_APP_DIRECT_URL }],
-      [
-        { text: "Канал новостей", url: CHANNEL_URL },
-        { text: "Поддержка", url: SUPPORT_URL },
-      ],
-    ],
-  };
+  const site = process.env.NEXT_PUBLIC_SITE_URL || "";
+  const rows: any[][] = [];
+  if (tgId && site.startsWith("https://")) {
+    // токен на 24 часа, чтобы кнопка в старом приветствии не «протухала» через 10 минут
+    rows.push([{ text: "Сайт", url: `${site}/api/auth/token?t=${signSiteToken(tgId, 86400)}` }]);
+  }
+  rows.push([{ text: "Открыть биржу", url: MINI_APP_DIRECT_URL }]);
+  rows.push([
+    { text: "Канал новостей", url: CHANNEL_URL },
+    { text: "Поддержка", url: SUPPORT_URL },
+  ]);
+  const keyboard = { inline_keyboard: rows };
 
   if (settings?.welcome_photo_file_id) {
     const result: any = await telegram.sendPhoto(chatId, settings.welcome_photo_file_id, {

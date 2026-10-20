@@ -1,29 +1,19 @@
-// Регистрация и выбор роли прямо в боте, затем выбор: сайт или Mini App
+// Регистрация и выбор роли прямо в боте
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseUrl, getSupabaseAnonKey } from "@/lib/supabase/config";
 import { telegram } from "@/lib/telegram/bot-api";
-import { signSiteToken } from "@/lib/siteToken";
 
 type Admin = ReturnType<typeof createAdminClient>;
 type From = { id: number; first_name?: string; last_name?: string; username?: string };
 
-const APP_URL = process.env.TELEGRAM_MINI_APP_URL || "https://t.me/F1337Bot/app";
 const NICHES: [string, string][] = [
   ["programming", "Программирование"],
   ["design", "Дизайн"],
   ["marketing", "Маркетинг"],
   ["copywriting", "Копирайтинг"],
 ];
-
-function openKeyboard(tgId: number) {
-  const site = process.env.NEXT_PUBLIC_SITE_URL || "";
-  const rows: any[][] = [];
-  if (site.startsWith("https://")) rows.push([{ text: "Открыть сайт", url: `${site}/api/auth/token?t=${signSiteToken(tgId)}` }]);
-  rows.push([{ text: "Остаться в Mini App", url: APP_URL }]);
-  return { inline_keyboard: rows };
-}
 
 async function ensureUser(admin: Admin, from: From, patch: Record<string, unknown>): Promise<string | null> {
   const { data: ex } = await admin.from("users").select("id").eq("telegram_id", from.id).maybeSingle();
@@ -59,10 +49,9 @@ async function getRole(admin: Admin, tgId: number) {
 }
 
 export async function startOnboarding(chatId: number, from: From, admin: Admin) {
-  if (await getRole(admin, from.id)) {
-    await telegram.sendMessage(chatId, "Где продолжить работу?", { reply_markup: openKeyboard(from.id) });
-    return;
-  }
+  // Уже зарегистрирован — только приветствие с кнопками, без доп. сообщений
+  if (await getRole(admin, from.id)) return;
+
   await telegram.sendMessage(chatId, "<b>Регистрация.</b> Кем вы будете на бирже?", {
     reply_markup: {
       inline_keyboard: [
@@ -83,7 +72,7 @@ export async function handleOnboardingCallback(cq: any, admin: Admin): Promise<b
     chatId && messageId ? telegram.editMessageText(chatId, messageId, text, markup ? { reply_markup: markup } : {}) : Promise.resolve();
 
   if (await getRole(admin, from.id)) {
-    await edit("Вы уже зарегистрированы. Где продолжить работу?", openKeyboard(from.id));
+    await edit("Вы уже зарегистрированы.");
   } else if (data === "ob_role:executor") {
     await edit("Выберите основное направление:", {
       inline_keyboard: NICHES.map(([id, label]) => [{ text: label, callback_data: `ob_niche:${id}` }]),
@@ -96,7 +85,7 @@ export async function handleOnboardingCallback(cq: any, admin: Admin): Promise<b
       await edit("Не удалось завершить регистрацию. Нажмите /start и попробуйте ещё раз.");
     } else {
       if (niche) await admin.from("executor_profiles").upsert({ id, skills: [niche[1]] });
-      await edit(`Готово, вы зарегистрированы как ${role === "client" ? "заказчик" : "исполнитель"}. Где продолжить работу?`, openKeyboard(from.id));
+      await edit(`✅ Готово, вы зарегистрированы как ${role === "client" ? "заказчик" : "исполнитель"}. Кнопки входа — в приветственном сообщении выше.`);
     }
   }
   await telegram.answerCallbackQuery(cq.id);
