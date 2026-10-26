@@ -5,6 +5,8 @@ import { Hero } from "@/components/landing/Hero";
 import { Effects } from "@/components/landing/Effects";
 import { Audience } from "@/components/landing/Audience";
 
+import { PRIVACY_POLICY_URL, USER_AGREEMENT_URL } from "@/lib/constants";
+
 const BOT = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "F1337Bot";
 const CHANNEL = process.env.TELEGRAM_CHANNEL_URL || "https://t.me/F1337C";
 const SUPPORT = process.env.NEXT_PUBLIC_SUPPORT_URL || "https://t.me/F1337H";
@@ -163,10 +165,22 @@ export default function Landing() {
             <span className="font-heading text-xl text-slate-900">1337</span>
             <p className="mt-3">ИНН 920004048610 · +7 978 468-21-44</p>
           </div>
-          <div className="flex gap-8 font-semibold">
-            <Link href="/offer" className="hover:text-slate-900">Публичная оферта</Link>
-            <a href={CHANNEL} className="hover:text-slate-900">Канал</a>
-            <a href={SUPPORT} className="hover:text-slate-900">Поддержка</a>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 font-semibold text-xs md:text-sm">
+            <a href={USER_AGREEMENT_URL} target="_blank" rel="noopener noreferrer" className="hover:text-violet-700 transition-colors">
+              Пользовательское соглашение
+            </a>
+            <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" className="hover:text-violet-700 transition-colors">
+              Политика конфиденциальности
+            </a>
+            <Link href="/offer" className="hover:text-slate-900 transition-colors">
+              Оферта
+            </Link>
+            <a href={CHANNEL} target="_blank" rel="noopener noreferrer" className="hover:text-slate-900 transition-colors">
+              Канал
+            </a>
+            <a href={SUPPORT} target="_blank" rel="noopener noreferrer" className="hover:text-slate-900 transition-colors">
+              Поддержка
+            </a>
           </div>
         </div>
       </footer>

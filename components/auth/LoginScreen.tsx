@@ -19,7 +19,8 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
       if (res?.ok) onDone();
       else setError("Не удалось войти. Попробуйте ещё раз.");
     };
-    if (!BOT || !box.current) return;
+    const el = box.current;
+    if (!BOT || !el) return;
     const s = document.createElement("script");
     s.src = "https://telegram.org/js/telegram-widget.js?22";
     s.async = true;
@@ -29,9 +30,9 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
     s.setAttribute("data-request-access", "write");
     s.setAttribute("data-userpic", "false");
     s.setAttribute("data-onauth", "onTelegramAuth(user)");
-    box.current.appendChild(s);
+    el.appendChild(s);
     return () => {
-      if (box.current) box.current.innerHTML = "";
+      el.innerHTML = "";
     };
   }, [onDone]);
 
@@ -54,6 +55,27 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
           <p className="text-xs text-slate-500 mb-3">Уже есть аккаунт? Войдите кнопкой Telegram:</p>
           <div ref={box} className="min-h-[40px]" />
           {error && <p className="mt-3 text-xs font-bold text-rose-600">{error}</p>}
+        </div>
+
+        <div className="mt-8 text-center text-[11px] text-slate-500 leading-relaxed">
+          Входя на платформу, вы соглашаетесь с{" "}
+          <a
+            href="https://telegra.ph/PUBLICHNAYA-OFERTA-08-12-15"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-violet-600 font-bold hover:underline"
+          >
+            Пользовательским соглашением
+          </a>{" "}
+          и{" "}
+          <a
+            href="https://telegra.ph/POLITIKA-KONFIDENCIALNOSTI-08-12-99"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-violet-600 font-bold hover:underline"
+          >
+            Политикой конфиденциальности
+          </a>
         </div>
       </div>
     </div>

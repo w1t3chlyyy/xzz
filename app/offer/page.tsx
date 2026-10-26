@@ -1,9 +1,15 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { ExternalLink, ShieldCheck, ArrowLeft, FileText } from "lucide-react";
 
-export const metadata: Metadata = { title: "Публичная оферта — 1337" };
+export const metadata: Metadata = {
+  title: "Пользовательское соглашение и публичная оферта — 1337",
+  description: "Пользовательское соглашение и публичная оферта сервиса 1337",
+};
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL || "адрес сайта";
+const TELEGRAPH_OFFER_URL = "https://telegra.ph/PUBLICHNAYA-OFERTA-08-12-15";
+const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://1337-app.vercel.app";
+
 
 const sections: { t: string; p: string[] }[] = [
   {
@@ -123,29 +129,64 @@ const sections: { t: string; p: string[] }[] = [
 export default function OfferPage() {
   return (
     <div className="min-h-screen bg-[#F4F3FA] text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="max-w-3xl mx-auto px-6 h-16 flex items-center justify-between">
+      <header className="border-b border-slate-200 bg-white sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="font-heading text-2xl">1337</Link>
-          <Link href="/" className="text-sm font-semibold text-slate-600 hover:text-slate-900">← На главную</Link>
+          <div className="flex items-center gap-3">
+            <Link href="/privacy" className="text-xs font-bold text-slate-600 hover:text-violet-700 py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-violet-50 transition-colors">
+              Политика конфиденциальности
+            </Link>
+            <Link href="/" className="text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors">
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>На главную</span>
+            </Link>
+          </div>
         </div>
       </header>
-      <main className="max-w-3xl mx-auto px-6 py-14">
-        <h1 className="text-3xl md:text-4xl font-heading leading-tight">Публичная оферта</h1>
-        <p className="mt-2 text-sm text-slate-500">о заключении договора купли-продажи</p>
-        <div className="mt-12 space-y-12">
+      <main className="max-w-4xl mx-auto px-6 py-10 md:py-14">
+        {/* Banner with Official Link */}
+        <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-3xl p-6 text-white mb-10 shadow-lg shadow-violet-500/15 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-white text-[11px] font-extrabold uppercase tracking-wider">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
+              <span>Официальный документ</span>
+            </div>
+            <h2 className="text-lg font-extrabold">Пользовательское соглашение и оферта 1337</h2>
+            <p className="text-xs text-violet-100 max-w-md">
+              Оригинал опубликован и верифицирован в Telegra.ph
+            </p>
+          </div>
+
+          <a
+            href={TELEGRAPH_OFFER_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-violet-700 font-extrabold text-xs shadow-md hover:bg-violet-50 transition-all shrink-0"
+          >
+            <span>Открыть в Telegra.ph</span>
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        </div>
+
+        <h1 className="text-3xl md:text-4xl font-heading leading-tight">Пользовательское соглашение</h1>
+        <p className="mt-2 text-sm text-slate-500">Публичная оферта о заключении договора купли-продажи и правилах платформы 1337</p>
+
+        <div className="mt-10 bg-white rounded-3xl p-6 md:p-10 border border-slate-200/80 shadow-sm space-y-10">
           {sections.map((s, i) => (
             <section key={s.t}>
-              <h2 className="text-lg font-bold border-b border-slate-300 pb-3">{i + 1}. {s.t}</h2>
-              <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-700">
+              <h2 className="text-base md:text-lg font-bold border-b border-slate-200 pb-3">{i + 1}. {s.t}</h2>
+              <div className="mt-4 space-y-3 text-xs md:text-sm leading-relaxed text-slate-700">
                 {s.p.map((x, j) => <p key={j}>{x}</p>)}
               </div>
             </section>
           ))}
-          <section>
-            <h2 className="text-lg font-bold border-b border-slate-300 pb-3">11. Реквизиты Продавца</h2>
-            <dl className="mt-5 text-sm divide-y divide-slate-200 border-b border-slate-200">
-              <div className="py-3 flex gap-6"><dt className="w-48 font-bold">ИНН</dt><dd>920004048610</dd></div>
-              <div className="py-3 flex gap-6"><dt className="w-48 font-bold">Контактный телефон</dt><dd>+7 978 468-21-44</dd></div>
+          <section className="pt-4 border-t border-slate-200">
+            <h2 className="text-base md:text-lg font-bold pb-3">11. Реквизиты Продавца и Оператора</h2>
+            <dl className="mt-3 text-xs md:text-sm divide-y divide-slate-100 border-b border-slate-100">
+              <div className="py-2.5 flex gap-6"><dt className="w-48 font-bold text-slate-900">ИНН</dt><dd className="text-slate-600">920004048610</dd></div>
+              <div className="py-2.5 flex gap-6"><dt className="w-48 font-bold text-slate-900">Контактный телефон</dt><dd className="text-slate-600">+7 978 468-21-44</dd></div>
+              <div className="py-2.5 flex gap-6"><dt className="w-48 font-bold text-slate-900">Оригинал в Telegra.ph</dt><dd><a href={TELEGRAPH_OFFER_URL} target="_blank" rel="noopener noreferrer" className="text-violet-600 font-bold hover:underline inline-flex items-center gap-1"><span>{TELEGRAPH_OFFER_URL}</span><ExternalLink className="w-3 h-3" /></a></dd></div>
+              <div className="py-2.5 flex gap-6"><dt className="w-48 font-bold text-slate-900">Политика конфиденциальности</dt><dd><Link href="/privacy" className="text-violet-600 font-bold hover:underline">Перейти к Политике конфиденциальности</Link></dd></div>
             </dl>
           </section>
         </div>
@@ -153,3 +194,4 @@ export default function OfferPage() {
     </div>
   );
 }
+

@@ -28,9 +28,12 @@ import {
   Users,
   Flame,
   AlertTriangle,
-  Gift
+  Gift,
+  ExternalLink
 } from "lucide-react";
 import { getSubscriptionLabel } from "@/lib/utils";
+import { PRIVACY_POLICY_URL, USER_AGREEMENT_URL, SUPPORT_URL } from "@/lib/constants";
+
 
 interface SubscriptionPlan {
   id: string;
@@ -346,6 +349,51 @@ export default function ProfilePage() {
             </motion.div>
           );
         })}
+      </div>
+
+      {/* Legal & Documents */}
+      <div className="bg-white rounded-3xl p-4 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] space-y-2.5">
+        <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 px-1">
+          Правовая информация
+        </h4>
+        <div className="space-y-1.5 text-xs font-bold">
+          <a
+            href={USER_AGREEMENT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-slate-50 text-slate-700 hover:text-violet-700 transition-colors"
+          >
+            <div className="flex items-center gap-2.5">
+              <FileText className="w-4 h-4 text-violet-600" />
+              <span>Пользовательское соглашение</span>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+          </a>
+
+          <a
+            href={PRIVACY_POLICY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-slate-50 text-slate-700 hover:text-violet-700 transition-colors"
+          >
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-violet-600" />
+              <span>Политика конфиденциальности</span>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+          </a>
+
+          <Link
+            href="/offer"
+            className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-slate-50 text-slate-700 hover:text-violet-700 transition-colors"
+          >
+            <div className="flex items-center gap-2.5">
+              <FileText className="w-4 h-4 text-violet-600" />
+              <span>Публичная оферта на сайте</span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+          </Link>
+        </div>
       </div>
     </div>
   );

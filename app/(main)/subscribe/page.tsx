@@ -513,6 +513,27 @@ export default function SubscribePage() {
             <span>{promoMessage.text}</span>
           </p>
         )}
+
+        <div className="text-center text-[11px] text-slate-400 pt-3 leading-relaxed">
+          Оформляя подписку, вы соглашаетесь с{" "}
+          <a
+            href="https://telegra.ph/PUBLICHNAYA-OFERTA-08-12-15"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-violet-600 underline font-medium hover:text-violet-800"
+          >
+            Пользовательским соглашением
+          </a>{" "}
+          и{" "}
+          <a
+            href="https://telegra.ph/POLITIKA-KONFIDENCIALNOSTI-08-12-99"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-violet-600 underline font-medium hover:text-violet-800"
+          >
+            Политикой конфиденциальности
+          </a>
+        </div>
       </div>
 
       {/* Success Modal */}
