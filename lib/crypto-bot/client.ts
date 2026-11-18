@@ -58,14 +58,12 @@ function stringifyCryptoBotError(data: any): string {
 export class CryptoBotClient {
   private apiKey: string;
   private baseUrl: string;
-  private webhookToken?: string;
 
-  constructor(apiKey: string, testnet: boolean = false, webhookToken?: string) {
+  constructor(apiKey: string, testnet: boolean = false) {
     this.apiKey = apiKey;
     this.baseUrl = testnet
       ? 'https://testnet-pay.crypt.bot/api'
       : 'https://pay.crypt.bot/api';
-    this.webhookToken = webhookToken;
   }
 
   private async request<T>(
@@ -156,23 +154,14 @@ export class CryptoBotClient {
   }
 
   verifyWebhook(body: string, signature: string): boolean {
-    if (!this.webhookToken) {
-      throw new Error('Webhook token is required for signature verification');
-    }
-
-    const secret = crypto.createHash('sha256').update(this.webhookToken).digest();
-    const hmac = crypto.createHmac('sha256', secret).update(body).digest('hex');
-    return hmac === signature;
+    return verifyWebhookSignature(body, signature, this.apiKey);
   }
 
   parseWebhook(body: string, signature: string): CryptoBotWebhook | null {
     try {
-      if (this.webhookToken) {
-        const isValid = this.verifyWebhook(body, signature);
-        if (!isValid) {
-          console.warn('Webhook signature verification failed');
-          return null;
-        }
+      if (!this.verifyWebhook(body, signature)) {
+        console.warn('Webhook signature verification failed');
+        return null;
       }
 
       const data = JSON.parse(body);
@@ -189,20 +178,14 @@ let cryptoBotInstance: CryptoBotClient | null = null;
 
 export function getCryptoBotClient(): CryptoBotClient {
   if (!cryptoBotInstance) {
-    // ВАЖНО: раньше здесь читались CRYPTO_BOT_API_KEY / CRYPTO_BOT_TESTNET /
-    // CRYPTO_BOT_WEBHOOK_TOKEN, а .env.example и API-роут платежей использовали
-    // CRYPTOBOT_API_TOKEN — эти переменные никогда не совпадали, поэтому
-    // getCryptoBotClient() всегда падал с ошибкой "not set", даже если токен
-    // был задан. Теперь имена приведены к единому стилю.
     const apiKey = process.env.CRYPTOBOT_API_TOKEN || '';
     const testnet = process.env.CRYPTOBOT_TESTNET === 'true';
-    const webhookToken = process.env.CRYPTOBOT_WEBHOOK_TOKEN || '';
 
     if (!apiKey) {
       throw new Error('CRYPTOBOT_API_TOKEN is not set in environment variables');
     }
 
-    cryptoBotInstance = new CryptoBotClient(apiKey, testnet, webhookToken);
+    cryptoBotInstance = new CryptoBotClient(apiKey, testnet);
   }
 
   return cryptoBotInstance;
@@ -210,7 +193,9 @@ export function getCryptoBotClient(): CryptoBotClient {
 
 // Utility function for webhook signature verification (exported separately)
 export function verifyWebhookSignature(body: string, signature: string, token: string): boolean {
+  if (!token || !/^[a-f\d]{64}$/i.test(signature)) return false;
   const secret = crypto.createHash('sha256').update(token).digest();
-  const hmac = crypto.createHmac('sha256', secret).update(body).digest('hex');
-  return hmac === signature;
+  const expected = crypto.createHmac('sha256', secret).update(body).digest();
+  const actual = Buffer.from(signature, 'hex');
+  return actual.length === expected.length && crypto.timingSafeEqual(expected, actual);
 }

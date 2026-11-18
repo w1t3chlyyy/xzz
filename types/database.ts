@@ -82,7 +82,8 @@ export interface Database {
           amount: number;
           currency: string;
           tier: string;
-          method: "crypto" | "stars" | "bank";
+          method: "crypto" | "stars" | "bank" | "xrocket";
+          xrocket_invoice_id: string | null;
           duration_days: number;
           status: string;
           proof_file_id: string | null;

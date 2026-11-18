@@ -29,7 +29,10 @@ export async function POST(request: NextRequest) {
 
     if (method === "crypto") {
       if (!process.env.CRYPTOBOT_API_TOKEN) {
-        return NextResponse.json({ error: "Оплата криптовалютой временно недоступна" }, { status: 503 });
+        return NextResponse.json(
+          { error: "CryptoBot не настроен: добавьте CRYPTOBOT_API_TOKEN в переменные окружения сервера" },
+          { status: 503 }
+        );
       }
       const invoice = await getCryptoBotClient().createInvoice({
         amount: price.usdt.toString(),
@@ -39,6 +42,7 @@ export async function POST(request: NextRequest) {
         allow_anonymous: false,
         expires_in: 3600,
       });
+      if (!invoice.pay_url) throw new Error("CryptoBot did not return a payment URL");
 
       const { data: payment, error } = await admin
         .from("payments")
@@ -53,7 +57,10 @@ export async function POST(request: NextRequest) {
 
     if (method === "xrocket") {
       if (!process.env.XROCKET_API_TOKEN) {
-        return NextResponse.json({ error: "Оплата через Xrocket временно недоступна" }, { status: 503 });
+        return NextResponse.json(
+          { error: "Xrocket не настроен: добавьте XROCKET_API_TOKEN в переменные окружения сервера" },
+          { status: 503 }
+        );
       }
 
       // Сначала создаём строку платежа — её id уходит в xRocket как clientInvoiceId
@@ -80,17 +87,20 @@ export async function POST(request: NextRequest) {
           callbackUrl: siteUrl ? `${siteUrl}/api/payments/webhook-xrocket` : undefined,
           payload: { paymentId: payment.id },
         });
+        const payUrl = invoice.links?.telegramBotLink;
+        if (!payUrl) throw new Error("Xrocket did not return a payment URL");
 
-        await admin
+        const { error: updateError } = await admin
           .from("payments")
           .update({ xrocket_invoice_id: String(invoice.id) })
           .eq("id", payment.id);
+        if (updateError) throw updateError;
 
         // Подписка выдаётся только вебхуком invoice_status_changed → paid
         return NextResponse.json({
           success: true,
           paymentId: payment.id,
-          payUrl: invoice.links?.telegramBotLink,
+          payUrl,
         });
       } catch (err) {
         // Инвойс в xRocket не создался — не оставляем висящий pending-платёж
@@ -107,13 +117,18 @@ export async function POST(request: NextRequest) {
         .single();
       if (error) throw error;
 
-      await telegram.sendInvoice(me.telegram_id, {
-        title: "Подписка 1337 — Pro",
-        description: `Доступ на ${days} дней`,
-        payload: JSON.stringify({ paymentId: payment.id }),
-        currency: "XTR",
-        prices: [{ label: "Pro", amount: price.stars }],
-      });
+      try {
+        await telegram.sendInvoice(me.telegram_id, {
+          title: "Подписка 1337 — Pro",
+          description: `Доступ на ${days} дней`,
+          payload: JSON.stringify({ paymentId: payment.id }),
+          currency: "XTR",
+          prices: [{ label: "Pro", amount: price.stars }],
+        });
+      } catch (error) {
+        await admin.from("payments").delete().eq("id", payment.id);
+        throw error;
+      }
 
       return NextResponse.json({
         success: true,

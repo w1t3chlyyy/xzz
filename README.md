@@ -46,7 +46,9 @@ cp .env.example .env.local
 1. Откройте [@CryptoBot](https://t.me/CryptoBot)
 2. Перейдите в Crypto Pay → Create App
 3. Получите API Token → `CRYPTOBOT_API_TOKEN`
-4. Настройте Webhook на `https://your-app.vercel.app/api/payments/webhook`
+4. В Crypto Pay → ваше приложение → Webhooks укажите
+   `https://your-app.vercel.app/api/payments/webhook`. Crypto Pay подписывает
+   webhook с помощью API Token; отдельный `CRYPTOBOT_WEBHOOK_TOKEN` не нужен.
 
 ### 6. Деплой на Vercel
 

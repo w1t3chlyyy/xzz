@@ -33,6 +33,7 @@ interface PendingPayment {
   requisites?: string;
   amount?: number;
   manualPayUrl?: string | null;
+  payUrl?: string;
 }
 
 export default function SubscribePage() {
@@ -143,6 +144,10 @@ export default function SubscribePage() {
   };
 
   const handleActivatePlan = async (tierToActivate: "pro") => {
+    const paymentWindow =
+      paymentMethod === "crypto" || paymentMethod === "xrocket"
+        ? window.open("about:blank", "_blank")
+        : null;
     setIsProcessing(true);
     setPromoMessage(null);
     try {
@@ -158,12 +163,17 @@ export default function SubscribePage() {
 
       const data = await res.json();
       if (!res.ok) {
+        paymentWindow?.close();
         setPromoMessage({ text: data.error || "Не удалось создать платёж", type: "error" });
         return;
       }
 
-      if ((paymentMethod === "crypto" || paymentMethod === "xrocket") && data.payUrl) {
-        window.open(data.payUrl, "_blank");
+      if (paymentMethod === "crypto" || paymentMethod === "xrocket") {
+        if (data.payUrl && paymentWindow) {
+          paymentWindow.location.href = data.payUrl;
+        } else {
+          paymentWindow?.close();
+        }
       }
 
       setPendingPayment({
@@ -172,9 +182,11 @@ export default function SubscribePage() {
         requisites: data.requisites,
         amount: data.amount,
         manualPayUrl: data.manualPayUrl ?? null,
+        payUrl: data.payUrl,
       });
       pollPaymentStatus(data.paymentId);
     } catch (error) {
+      paymentWindow?.close();
       console.error("Subscription activation failed:", error);
       setPromoMessage({ text: "Ошибка сети, попробуйте ещё раз", type: "error" });
     } finally {
@@ -326,15 +338,29 @@ export default function SubscribePage() {
             )}
 
             {pendingPayment.method === "crypto" && (
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Окно оплаты CryptoBot открыто в новой вкладке. После оплаты подписка активируется автоматически.
-              </p>
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  После оплаты в CryptoBot подписка активируется автоматически.
+                </p>
+                {pendingPayment.payUrl && (
+                  <a href={pendingPayment.payUrl} target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-xs">
+                    Открыть оплату CryptoBot
+                  </a>
+                )}
+              </div>
             )}
 
             {pendingPayment.method === "xrocket" && (
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Бот Xrocket открыт в новой вкладке — завершите оплату там. После оплаты подписка активируется автоматически.
-              </p>
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  После оплаты в Xrocket подписка активируется автоматически.
+                </p>
+                {pendingPayment.payUrl && (
+                  <a href={pendingPayment.payUrl} target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-xs">
+                    Открыть оплату Xrocket
+                  </a>
+                )}
+              </div>
             )}
           </motion.div>
         )}
