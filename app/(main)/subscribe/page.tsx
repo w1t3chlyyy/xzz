@@ -21,15 +21,18 @@ import {
   Loader2,
   Landmark,
   Copy,
+  Rocket,
+  Send,
 } from "lucide-react";
 
-type PaymentMethod = "bank" | "stars" | "crypto";
+type PaymentMethod = "bank" | "stars" | "crypto" | "xrocket";
 
 interface PendingPayment {
   id: string;
   method: PaymentMethod;
   requisites?: string;
   amount?: number;
+  manualPayUrl?: string | null;
 }
 
 export default function SubscribePage() {
@@ -159,7 +162,7 @@ export default function SubscribePage() {
         return;
       }
 
-      if (paymentMethod === "crypto" && data.payUrl) {
+      if ((paymentMethod === "crypto" || paymentMethod === "xrocket") && data.payUrl) {
         window.open(data.payUrl, "_blank");
       }
 
@@ -168,6 +171,7 @@ export default function SubscribePage() {
         method: paymentMethod,
         requisites: data.requisites,
         amount: data.amount,
+        manualPayUrl: data.manualPayUrl ?? null,
       });
       pollPaymentStatus(data.paymentId);
     } catch (error) {
@@ -290,9 +294,28 @@ export default function SubscribePage() {
                   <span>Скопировать реквизиты</span>
                 </button>
                 <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Переведите {pendingPayment.amount?.toLocaleString("ru-RU")} ₽ и отправьте скриншот чека{" "}
-                  <b>в чат с ботом 1337 в Telegram</b>. Администратор подтвердит оплату вручную, это может занять некоторое время.
+                  Переведите {pendingPayment.amount?.toLocaleString("ru-RU")} ₽ по реквизитам выше.
                 </p>
+                {pendingPayment.manualPayUrl ? (
+                  <>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      После перевода нажмите кнопку ниже и напишите администратору — подписка будет выдана вручную после проверки платежа.
+                    </p>
+                    <a
+                      href={pendingPayment.manualPayUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-extrabold py-2.5 rounded-2xl transition-colors"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Написать администратору</span>
+                    </a>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Затем отправьте скриншот чека <b>в чат с ботом 1337 в Telegram</b>. Администратор подтвердит оплату вручную, это может занять некоторое время.
+                  </p>
+                )}
               </div>
             )}
 
@@ -305,6 +328,12 @@ export default function SubscribePage() {
             {pendingPayment.method === "crypto" && (
               <p className="text-[11px] text-slate-600 leading-relaxed">
                 Окно оплаты CryptoBot открыто в новой вкладке. После оплаты подписка активируется автоматически.
+              </p>
+            )}
+
+            {pendingPayment.method === "xrocket" && (
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Бот Xrocket открыт в новой вкладке — завершите оплату там. После оплаты подписка активируется автоматически.
               </p>
             )}
           </motion.div>
@@ -426,7 +455,7 @@ export default function SubscribePage() {
           Способ оплаты
         </h4>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => setPaymentMethod("bank")}
@@ -438,7 +467,7 @@ export default function SubscribePage() {
           >
             <div className="text-xs font-extrabold flex items-center justify-center gap-1">
               <Landmark className="w-3.5 h-3.5" />
-              <span>По реквизитам</span>
+              <span>Карта / Реквизиты</span>
             </div>
             <div className="text-[10px] text-slate-400">Проверка вручную</div>
           </button>
@@ -470,6 +499,22 @@ export default function SubscribePage() {
           >
             <div className="text-xs font-extrabold">CryptoBot</div>
             <div className="text-[10px] text-slate-400">USDT</div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setPaymentMethod("xrocket")}
+            className={`p-2.5 rounded-2xl border text-center transition-all cursor-pointer ${
+              paymentMethod === "xrocket"
+                ? "border-violet-600 bg-purple-50/70 text-violet-700 font-extrabold shadow-2xs"
+                : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 font-medium"
+            }`}
+          >
+            <div className="text-xs font-extrabold flex items-center justify-center gap-1">
+              <Rocket className="w-3.5 h-3.5" />
+              <span>Xrocket</span>
+            </div>
+            <div className="text-[10px] text-slate-400">USDT · крипто</div>
           </button>
         </div>
       </div>
